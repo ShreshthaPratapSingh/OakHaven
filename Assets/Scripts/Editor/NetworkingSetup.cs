@@ -34,38 +34,130 @@ public static class NetworkingSetup
     {
         string prefabPath = "Assets/Prefabs/NetworkPlayer.prefab";
 
-        // Check if already exists
+        // Check if already exists — if so, rebuild it
         GameObject existingPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
         if (existingPrefab != null)
         {
-            Debug.Log("[NetworkingSetup] NetworkPlayer prefab already exists at: " + prefabPath);
+            Debug.Log("[NetworkingSetup] NetworkPlayer prefab already exists at: " + prefabPath +
+                      "\nUse Tools > OakHaven > Rebuild Player Prefab to recreate it.");
             RegisterPrefabInNetworkPrefabsList(existingPrefab);
             return;
         }
 
+        BuildPlayerPrefab(prefabPath);
+    }
+
+    [MenuItem("Tools/OakHaven/Rebuild Player Prefab")]
+    public static void RebuildPlayerPrefab()
+    {
+        string prefabPath = "Assets/Prefabs/NetworkPlayer.prefab";
+
+        // Delete existing prefab if present
+        if (AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath) != null)
+        {
+            AssetDatabase.DeleteAsset(prefabPath);
+            Debug.Log("[NetworkingSetup] Deleted existing NetworkPlayer prefab.");
+        }
+
+        BuildPlayerPrefab(prefabPath);
+        Debug.Log("[NetworkingSetup] ✅ Player prefab rebuilt! Save the scene (Ctrl+S).");
+    }
+
+    private static void BuildPlayerPrefab(string prefabPath)
+    {
         // Ensure directory exists
         if (!AssetDatabase.IsValidFolder("Assets/Prefabs"))
         {
             AssetDatabase.CreateFolder("Assets", "Prefabs");
         }
 
-        // Create a capsule as the visual representation
-        GameObject playerGO = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-        playerGO.name = "NetworkPlayer";
+        // ── Root GameObject ──
+        GameObject root = new GameObject("NetworkPlayer");
 
-        // Add networking components
-        playerGO.AddComponent<NetworkObject>();
-        playerGO.AddComponent<NetworkTransform>();
+        // Networking
+        root.AddComponent<NetworkObject>();
+        NetworkTransform netTransform = root.AddComponent<NetworkTransform>();
 
-        // Save as prefab
-        GameObject prefab = PrefabUtility.SaveAsPrefabAsset(playerGO, prefabPath);
-        Object.DestroyImmediate(playerGO); // Clean up scene instance
+        // CharacterController (replaces the default CapsuleCollider)
+        CharacterController cc = root.AddComponent<CharacterController>();
+        cc.center = new Vector3(0f, 1f, 0f);
+        cc.height = 2f;
+        cc.radius = 0.5f;
+        cc.slopeLimit = 45f;
+        cc.stepOffset = 0.3f;
 
-        Debug.Log("[NetworkingSetup] Created NetworkPlayer prefab at: " + prefabPath);
+        // Player scripts (added now, wired after children exist)
+        PlayerController playerCtrl = root.AddComponent<PlayerController>();
+        PlayerCameraController camCtrl = root.AddComponent<PlayerCameraController>();
+
+        // ── PlayerModel (child — capsule visual) ──
+        GameObject model = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+        model.name = "PlayerModel";
+        model.transform.SetParent(root.transform, false);
+        model.transform.localPosition = new Vector3(0f, 1f, 0f); // Center at CC height
+
+        // Remove the collider that CreatePrimitive adds — we use CharacterController instead
+        CapsuleCollider modelCollider = model.GetComponent<CapsuleCollider>();
+        if (modelCollider != null) Object.DestroyImmediate(modelCollider);
+
+        // ── CameraPivot (child — at head height) ──
+        GameObject cameraPivot = new GameObject("CameraPivot");
+        cameraPivot.transform.SetParent(root.transform, false);
+        cameraPivot.transform.localPosition = new Vector3(0f, 1.5f, 0f);
+
+        // ── PlayerCamera (child of CameraPivot) ──
+        GameObject cameraObj = new GameObject("PlayerCamera");
+        cameraObj.transform.SetParent(cameraPivot.transform, false);
+        cameraObj.transform.localPosition = new Vector3(0f, 0f, -5f); // Behind player
+
+        Camera cam = cameraObj.AddComponent<Camera>();
+        cam.enabled = false; // Disabled by default — PlayerCameraController enables for owner
+        cam.nearClipPlane = 0.1f;
+        cam.fieldOfView = 60f;
+
+        AudioListener listener = cameraObj.AddComponent<AudioListener>();
+        listener.enabled = false; // Disabled by default — only owner's is active
+
+        // ── Wire serialized references via SerializedObject ──
+
+        // NetworkTransform → Owner authority (AuthorityMode = 1)
+        SerializedObject soNetTransform = new SerializedObject(netTransform);
+        SerializedProperty authModeProp = soNetTransform.FindProperty("AuthorityMode");
+        if (authModeProp != null)
+        {
+            authModeProp.intValue = 1; // 0 = Server, 1 = Owner
+            soNetTransform.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        // PlayerController → cameraPivot, playerModel
+        SerializedObject soPlayerCtrl = new SerializedObject(playerCtrl);
+        SerializedProperty pivotProp = soPlayerCtrl.FindProperty("cameraPivot");
+        if (pivotProp != null) pivotProp.objectReferenceValue = cameraPivot.transform;
+        SerializedProperty modelProp = soPlayerCtrl.FindProperty("playerModel");
+        if (modelProp != null) modelProp.objectReferenceValue = model.transform;
+        soPlayerCtrl.ApplyModifiedPropertiesWithoutUndo();
+
+        // PlayerCameraController → playerCamera, audioListener
+        SerializedObject soCamCtrl = new SerializedObject(camCtrl);
+        SerializedProperty camProp = soCamCtrl.FindProperty("playerCamera");
+        if (camProp != null) camProp.objectReferenceValue = cam;
+        SerializedProperty listenerProp = soCamCtrl.FindProperty("audioListener");
+        if (listenerProp != null) listenerProp.objectReferenceValue = listener;
+        soCamCtrl.ApplyModifiedPropertiesWithoutUndo();
+
+        // ── Save as prefab ──
+        GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, prefabPath);
+        Object.DestroyImmediate(root); // Clean up scene instance
+
+        Debug.Log("[NetworkingSetup] Created NetworkPlayer prefab at: " + prefabPath +
+                  "\n  → CharacterController, PlayerController, PlayerCameraController" +
+                  "\n  → CameraPivot > PlayerCamera (Camera + AudioListener, disabled)" +
+                  "\n  → NetworkTransform set to Owner authority");
 
         // Register in the default network prefabs list
         RegisterPrefabInNetworkPrefabsList(prefab);
     }
+
 
     private static void RegisterPrefabInNetworkPrefabsList(GameObject prefab)
     {
