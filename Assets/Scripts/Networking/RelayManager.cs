@@ -25,6 +25,11 @@ public class RelayManager : MonoBehaviour
     [Header("Relay Settings")]
     [SerializeField] private int maxConnections = 4;
 
+    [Header("Spawn Settings")]
+    [Tooltip("Where players spawn when they join. Set Y slightly above terrain to avoid clipping.")]
+    [SerializeField] private Vector3 spawnPosition = new Vector3(625.08f, 4.5f, 436.94f);
+    [SerializeField] private Vector3 spawnRotation = new Vector3(0f, 180f, 0f);
+
     private string _joinCode;
 
     // ───────────────────────── Lifecycle ─────────────────────────
@@ -93,7 +98,10 @@ public class RelayManager : MonoBehaviour
             var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
             transport.SetRelayServerData(allocation.ToRelayServerData("dtls"));
 
-            // 4. Start as Host
+            // 4. Enable connection approval so we can control spawn position
+            ConfigureConnectionApproval();
+
+            // 5. Start as Host
             NetworkManager.Singleton.StartHost();
 
             SetStatus("Hosting! Join Code: " + _joinCode);
@@ -142,7 +150,10 @@ public class RelayManager : MonoBehaviour
             var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
             transport.SetRelayServerData(joinAllocation.ToRelayServerData("dtls"));
 
-            // 3. Start as Client
+            // 3. Enable connection approval (must match host config)
+            ConfigureConnectionApproval();
+
+            // 4. Start as Client
             NetworkManager.Singleton.StartClient();
 
             SetStatus("Connected as client!");
@@ -161,6 +172,36 @@ public class RelayManager : MonoBehaviour
             SetStatus("Error: " + e.Message);
             Debug.LogError("[RelayManager] JoinRelay failed: " + e);
         }
+    }
+
+    // ───────────────────────── Connection Approval ─────────────────────────
+
+    /// <summary>
+    /// Configures the NetworkManager to use connection approval so we can
+    /// set the spawn position/rotation for each player.
+    /// </summary>
+    private void ConfigureConnectionApproval()
+    {
+        var nm = NetworkManager.Singleton;
+        nm.NetworkConfig.ConnectionApproval = true;
+        nm.ConnectionApprovalCallback = OnConnectionApproval;
+    }
+
+    /// <summary>
+    /// Called on the server/host for each incoming connection.
+    /// Approves the connection and sets the player's spawn position.
+    /// </summary>
+    private void OnConnectionApproval(
+        NetworkManager.ConnectionApprovalRequest request,
+        NetworkManager.ConnectionApprovalResponse response)
+    {
+        response.Approved = true;
+        response.CreatePlayerObject = true;
+        response.Position = spawnPosition;
+        response.Rotation = Quaternion.Euler(spawnRotation);
+
+        Debug.Log("[RelayManager] Approved connection for client " + request.ClientNetworkId +
+                  " — spawning at " + spawnPosition);
     }
 
     // ───────────────────────── Helpers ─────────────────────────
