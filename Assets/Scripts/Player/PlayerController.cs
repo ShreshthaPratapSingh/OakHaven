@@ -1,3 +1,4 @@
+using System.Collections;
 using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -29,6 +30,10 @@ public class PlayerController : NetworkBehaviour
     [SerializeField] private float cameraCollisionRadius = 0.2f;
     [SerializeField] private LayerMask cameraCollisionMask = ~0; // Collide with everything by default
 
+    [Header("Safety")]
+    [Tooltip("If the player falls below this Y, they respawn at their original spawn point.")]
+    [SerializeField] private float voidThreshold = -50f;
+
     // ───────────────────────── References ─────────────────────────
 
     [Header("References (wired in prefab)")]
@@ -43,10 +48,13 @@ public class PlayerController : NetworkBehaviour
     private CharacterController _cc;
     private InputSystem_Actions _inputActions;
 
+    private Vector3 _spawnPosition;      // Saved spawn position for respawn safety
+    private Quaternion _spawnRotation;
     private Vector3 _velocity;           // Accumulated vertical velocity (gravity + jump)
     private float _cameraPitch;          // Current camera pitch angle
     private float _cameraYaw;            // Current camera yaw angle
     private float _turnSmoothVelocity;   // SmoothDampAngle ref
+    private bool _movementReady;         // True once CC is properly teleported and enabled
 
     // ───────────────────────── Network Lifecycle ─────────────────────────
 
@@ -56,14 +64,23 @@ public class PlayerController : NetworkBehaviour
 
         _cc = GetComponent<CharacterController>();
 
+        // IMMEDIATELY disable CharacterController to prevent it from
+        // processing physics before the spawn position is applied.
+        // Without this, the CC falls from (0,0,0) before the network
+        // position from connection approval is set.
+        _cc.enabled = false;
+
         if (!IsOwner)
         {
-            // Non-owned instances: disable CharacterController so NetworkTransform
-            // can move the transform freely without CC interference.
-            _cc.enabled = false;
+            // Non-owned instances: keep CC disabled so NetworkTransform
+            // can move the transform freely.
             enabled = false; // Stop Update() from running
             return;
         }
+
+        // Save the spawn position assigned by the server (via connection approval).
+        _spawnPosition = transform.position;
+        _spawnRotation = transform.rotation;
 
         // Owner setup: enable input
         _inputActions = new InputSystem_Actions();
@@ -75,6 +92,49 @@ public class PlayerController : NetworkBehaviour
 
         // Initialize camera yaw to match the player's current facing
         _cameraYaw = transform.eulerAngles.y;
+
+        // Wait for the network position to fully apply, then teleport
+        // the CharacterController and enable it.
+        StartCoroutine(InitializeCharacterController());
+    }
+
+    /// <summary>
+    /// Waits a couple of frames for the network spawn position to settle,
+    /// then teleports the CharacterController and enables it.
+    /// CharacterController ignores transform.position changes while enabled,
+    /// so we must disable it, set position, then re-enable.
+    /// </summary>
+    private IEnumerator InitializeCharacterController()
+    {
+        // Wait 2 frames for NetworkTransform to apply the server position
+        yield return null;
+        yield return null;
+
+        // Use the current transform position (should now reflect connection approval),
+        // but fall back to our saved spawn position if it looks like origin
+        Vector3 targetPos = transform.position;
+        if (targetPos.sqrMagnitude < 1f) // Still at origin — approval didn't apply
+        {
+            targetPos = _spawnPosition;
+        }
+
+        // If spawn position is STILL near origin, something went wrong — use a safe default
+        if (targetPos.sqrMagnitude < 1f)
+        {
+            targetPos = new Vector3(625.08f, 5f, 436.94f);
+            Debug.LogWarning("[PlayerController] Spawn position was at origin, using fallback position.");
+        }
+
+        // Teleport the CharacterController
+        _cc.enabled = false;
+        transform.position = targetPos;
+        _cc.enabled = true;
+        _movementReady = true;
+
+        // Update saved spawn position in case we used fallback
+        _spawnPosition = targetPos;
+
+        Debug.Log("[PlayerController] CharacterController initialized at: " + targetPos);
     }
 
     public override void OnNetworkDespawn()
@@ -96,9 +156,12 @@ public class PlayerController : NetworkBehaviour
 
     private void Update()
     {
-        // This method only runs on the owning client (non-owners have enabled = false).
+        // Don't process movement until CC is properly initialized
+        if (!_movementReady) return;
+
         HandleCameraLook();
         HandleMovement();
+        CheckVoidFall();
     }
 
     private void LateUpdate()
@@ -192,5 +255,23 @@ public class PlayerController : NetworkBehaviour
         // Gravity
         _velocity.y += gravity * Time.deltaTime;
         _cc.Move(_velocity * Time.deltaTime);
+    }
+
+    // ───────────────────────── Safety ─────────────────────────
+
+    /// <summary>
+    /// If the player somehow falls through the world, teleport them
+    /// back to their spawn position.
+    /// </summary>
+    private void CheckVoidFall()
+    {
+        if (transform.position.y < voidThreshold)
+        {
+            Debug.LogWarning("[PlayerController] Player fell below void threshold! Respawning at: " + _spawnPosition);
+            _cc.enabled = false;
+            transform.position = _spawnPosition;
+            _velocity = Vector3.zero;
+            _cc.enabled = true;
+        }
     }
 }
