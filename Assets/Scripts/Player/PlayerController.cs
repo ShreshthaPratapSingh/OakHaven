@@ -47,6 +47,7 @@ public class PlayerController : NetworkBehaviour
 
     private CharacterController _cc;
     private InputSystem_Actions _inputActions;
+    private Animator _animator;
 
     private Vector3 _spawnPosition;      // Saved spawn position for respawn safety
     private Quaternion _spawnRotation;
@@ -63,6 +64,7 @@ public class PlayerController : NetworkBehaviour
         base.OnNetworkSpawn();
 
         _cc = GetComponent<CharacterController>();
+        _animator = GetComponentInChildren<Animator>();
 
         // IMMEDIATELY disable CharacterController to prevent it from
         // processing physics before the spawn position is applied.
@@ -223,6 +225,11 @@ public class PlayerController : NetworkBehaviour
             _velocity.y = -2f; // Small downward force to keep grounded
         }
 
+        if (_animator != null)
+        {
+            _animator.SetBool("isGrounded", isGrounded);
+        }
+
         // Read input
         Vector2 moveInput = _inputActions.Player.Move.ReadValue<Vector2>();
         bool isSprinting = _inputActions.Player.Sprint.IsPressed();
@@ -235,6 +242,10 @@ public class PlayerController : NetworkBehaviour
         // Apply movement
         float speed = isSprinting ? sprintSpeed : walkSpeed;
         _cc.Move(moveDir * speed * Time.deltaTime);
+        if (_animator != null)
+        {
+            _animator.SetFloat("Speed", moveInput.magnitude * speed);
+        }
 
         // Rotate model toward movement direction (third-person style)
         if (moveDir.sqrMagnitude > 0.01f && playerModel != null)
@@ -250,6 +261,10 @@ public class PlayerController : NetworkBehaviour
         {
             // v = sqrt(2 * |gravity| * jumpHeight)
             _velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
+            if (_animator != null)
+            {
+                _animator.SetTrigger("Jump");
+            }
         }
 
         // Gravity
