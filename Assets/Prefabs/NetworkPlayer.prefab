@@ -106,6 +106,8 @@ GameObject:
   - component: {fileID: 3172226584947385409}
   - component: {fileID: 1059272318161975352}
   - component: {fileID: 4067555136806311035}
+  - component: {fileID: 6275914907492775083}
+  - component: {fileID: -971714974245123131}
   m_Layer: 0
   m_Name: NetworkPlayer
   m_TagString: Untagged
@@ -246,7 +248,7 @@ MonoBehaviour:
   jumpHeight: 1.2
   gravity: -15
   turnSmoothTime: 0.1
-  mouseSensitivity: 1
+  mouseSensitivity: 0.3
   cameraPitchMin: -30
   cameraPitchMax: 60
   cameraDistance: 5
@@ -272,6 +274,77 @@ MonoBehaviour:
   ShowTopMostFoldoutHeaderGroup: 1
   playerCamera: {fileID: 7961068517122913565}
   audioListener: {fileID: 2113429991867517948}
+--- !u!114 &6275914907492775083
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7753491147168892034}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ec938d58ff46d0347862276b5cafad4f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Inventory
+  ShowTopMostFoldoutHeaderGroup: 1
+  maxSlots: 20
+--- !u!114 &-971714974245123131
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7753491147168892034}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 28805453809126348a21b8d122e196fa, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PlayerGathering
+  ShowTopMostFoldoutHeaderGroup: 1
+  interactRange: 4
+  interactLayerMask:
+    serializedVersion: 2
+    m_Bits: 64
+  startingToolTag: 
+  debugDrawRay: 1
+  EquippedToolTag:
+    UpdateTraits:
+      MinSecondsBetweenUpdates: 0
+      MaxSecondsBetweenUpdates: 0
+    m_InternalValue:
+      utf8LengthInBytes: 0
+      bytes:
+        offset0000:
+          byte0000: 0
+          byte0001: 0
+          byte0002: 0
+          byte0003: 0
+          byte0004: 0
+          byte0005: 0
+          byte0006: 0
+          byte0007: 0
+          byte0008: 0
+          byte0009: 0
+          byte0010: 0
+          byte0011: 0
+          byte0012: 0
+          byte0013: 0
+          byte0014: 0
+          byte0015: 0
+        byte0016: 0
+        byte0017: 0
+        byte0018: 0
+        byte0019: 0
+        byte0020: 0
+        byte0021: 0
+        byte0022: 0
+        byte0023: 0
+        byte0024: 0
+        byte0025: 0
+        byte0026: 0
+        byte0027: 0
+        byte0028: 0
+        byte0029: 0
 --- !u!1 &8803246946417512816
 GameObject:
   m_ObjectHideFlags: 0
