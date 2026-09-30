@@ -31,11 +31,13 @@ public class PlayerGathering : NetworkBehaviour
     // ───────────────────────── Configuration ─────────────────────────
 
     [Header("Interaction Settings")]
-    [Tooltip("Maximum distance (meters) the player can reach to gather resources.")]
-    [SerializeField] private float interactRange = 4f;
+    [Tooltip("Maximum distance (meters) from the player to detect resource nodes. " +
+             "Measured from the player's chest height using OverlapSphere.")]
+    [SerializeField] private float interactRange = 3f;
 
     [Tooltip("Which layers the interaction raycast can hit. " +
-             "Set this to include your resource node layer and exclude UI/player layers.")]
+             "IMPORTANT: Exclude the Player layer so the third-person camera ray " +
+             "doesn't hit the player's own collider before reaching resources.")]
     [SerializeField] private LayerMask interactLayerMask = ~0; // Everything by default
 
     [Header("Equipped Tool")]
@@ -43,7 +45,7 @@ public class PlayerGathering : NetworkBehaviour
              "Leave empty for 'bare hands'. Set to 'Axe' to test tree gathering.")]
     [SerializeField] private string startingToolTag = "Axe";
 
-    [Header("Visual Feedback")]
+    [Header("Visual Debug")]
     [Tooltip("If true, draws a debug ray in the Scene view showing the interaction raycast.")]
     [SerializeField] private bool debugDrawRay = true;
 
@@ -85,6 +87,16 @@ public class PlayerGathering : NetworkBehaviour
         // Only the owning client handles input and raycasting
         if (!IsOwner) return;
 
+        // FORCE-SET the layer mask to "Everything except our own layer".
+        // We use = instead of &= because the serialized Inspector value may not
+        // include custom layers (like ResourceBreak) that were added after the
+        // component was first created. This guarantees the raycast can hit all
+        // world layers (terrain, resources, etc.) while skipping our own collider.
+        int playerLayer = gameObject.layer;
+        interactLayerMask = ~(1 << playerLayer);
+        Debug.Log($"[PlayerGathering] Interact LayerMask set to: {interactLayerMask.value} " +
+                  $"(excluding layer {playerLayer} '{LayerMask.LayerToName(playerLayer)}')");
+
         _inputActions = new InputSystem_Actions();
         _inputActions.Player.Enable();
 
@@ -116,6 +128,9 @@ public class PlayerGathering : NetworkBehaviour
         {
             _playerCamera = Camera.main;
             if (_playerCamera == null) return; // Camera not ready yet
+            Debug.Log($"[PlayerGathering] Camera found: '{_playerCamera.gameObject.name}' " +
+                      $"on '{_playerCamera.transform.root.gameObject.name}' " +
+                      $"(layer mask: {interactLayerMask.value})");
         }
 
         // Check for gather input — using the Attack action (left mouse button)
@@ -136,36 +151,77 @@ public class PlayerGathering : NetworkBehaviour
     /// </summary>
     private void TryGather()
     {
-        // Raycast from screen center (crosshair) into the world
-        Ray ray = _playerCamera.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
+        // ─── THIRD-PERSON GATHERING APPROACH ───
+        // A pixel-thin raycast from the camera rarely hits thin tree trunk colliders
+        // because screen-center in third-person typically points at the foliage (no collider)
+        // or the sky. Instead, we find the nearest ResourceNode within arm's reach
+        // of the PLAYER'S position using OverlapSphere, which is standard for
+        // third-person melee/gathering interactions.
+
+        Vector3 playerPos = transform.position + Vector3.up * 1f; // ~chest height
+
+        // Find all colliders within gather range of the player
+        Collider[] hits = Physics.OverlapSphere(playerPos, interactRange, interactLayerMask);
 
         if (debugDrawRay)
         {
-            Debug.DrawRay(ray.origin, ray.direction * interactRange, Color.yellow, 0.5f);
+            // Draw the gather sphere in the Scene view
+            Debug.DrawRay(playerPos, Vector3.up * interactRange, Color.yellow, 0.5f);
+            Debug.DrawRay(playerPos, Vector3.forward * interactRange, Color.yellow, 0.5f);
+            Debug.DrawRay(playerPos, Vector3.right * interactRange, Color.yellow, 0.5f);
         }
 
-        if (!Physics.Raycast(ray, out RaycastHit hit, interactRange, interactLayerMask))
+        // Find the closest ResourceNode among all hits
+        ResourceNode closestNode = null;
+        float closestDist = float.MaxValue;
+
+        foreach (Collider col in hits)
         {
-            return; // Didn't hit anything
+            ResourceNode node = col.GetComponentInParent<ResourceNode>();
+            if (node == null) continue;
+
+            // Skip depleted nodes
+            if (node.CurrentHealth.Value <= 0) continue;
+
+            float dist = Vector3.Distance(playerPos, col.ClosestPoint(playerPos));
+            if (debugDrawRay)
+            {
+                Debug.Log($"[PlayerGathering] Found '{node.ResourceType}' at distance {dist:F2}m " +
+                          $"(object: '{col.gameObject.name}', layer: {LayerMask.LayerToName(col.gameObject.layer)})");
+            }
+
+            if (dist < closestDist)
+            {
+                closestDist = dist;
+                closestNode = node;
+            }
         }
 
-        // Check if we hit a ResourceNode (might be on a parent or the object itself)
-        ResourceNode node = hit.collider.GetComponentInParent<ResourceNode>();
-        if (node == null)
+        if (closestNode == null)
         {
-            return; // Hit something, but it's not a resource node
+            if (debugDrawRay)
+            {
+                Debug.Log($"[PlayerGathering] No ResourceNode within {interactRange}m of player. " +
+                          $"(OverlapSphere found {hits.Length} colliders total, " +
+                          $"playerPos: {playerPos}, mask: {interactLayerMask.value})");
+            }
+            return;
+        }
+
+        if (debugDrawRay)
+        {
+            // Draw a line from player to the resource we're about to hit
+            Debug.DrawLine(playerPos, closestNode.transform.position, Color.green, 1f);
         }
 
         // ── Client-side tool validation (for responsiveness) ──
-        // This prevents unnecessary RPCs and gives instant feedback.
-        // The server will re-validate, so this is purely a UX optimization.
         string myToolTag = EquippedToolTag.Value.ToString();
-        if (!string.IsNullOrEmpty(node.RequiredToolTag))
+        if (!string.IsNullOrEmpty(closestNode.RequiredToolTag))
         {
-            if (myToolTag != node.RequiredToolTag)
+            if (myToolTag != closestNode.RequiredToolTag)
             {
-                Debug.Log($"[PlayerGathering] Can't gather '{node.ResourceType}' — " +
-                          $"requires '{node.RequiredToolTag}' but equipped '{myToolTag}'.");
+                Debug.Log($"[PlayerGathering] Can't gather '{closestNode.ResourceType}' — " +
+                          $"requires '{closestNode.RequiredToolTag}' but equipped '{myToolTag}'.");
 
                 // TODO: Show UI feedback like "Requires Axe" floating text
                 return;
@@ -173,10 +229,11 @@ public class PlayerGathering : NetworkBehaviour
         }
 
         // ── Send hit to server ──
-        Debug.Log($"[PlayerGathering] Hitting '{node.ResourceType}' " +
-                  $"(health: {node.CurrentHealth.Value}/{node.MaxHealth})");
+        Debug.Log($"[PlayerGathering] Hitting '{closestNode.ResourceType}' " +
+                  $"(health: {closestNode.CurrentHealth.Value}/{closestNode.MaxHealth}, " +
+                  $"distance: {closestDist:F2}m)");
 
-        node.HitServerRpc(NetworkManager.Singleton.LocalClientId, myToolTag);
+        closestNode.HitServerRpc(NetworkManager.Singleton.LocalClientId, myToolTag);
     }
 
     // ───────────────────────── Tool Management ─────────────────────────
