@@ -48,6 +48,7 @@ public class PlayerController : NetworkBehaviour
     private CharacterController _cc;
     private InputSystem_Actions _inputActions;
     private Animator _animator;
+    private PlayerGathering _gathering;
 
     private Vector3 _spawnPosition;      // Saved spawn position for respawn safety
     private Quaternion _spawnRotation;
@@ -65,6 +66,7 @@ public class PlayerController : NetworkBehaviour
 
         _cc = GetComponent<CharacterController>();
         _animator = GetComponentInChildren<Animator>();
+        _gathering = GetComponent<PlayerGathering>();
 
         // IMMEDIATELY disable CharacterController to prevent it from
         // processing physics before the spawn position is applied.
@@ -228,6 +230,26 @@ public class PlayerController : NetworkBehaviour
         if (_animator != null)
         {
             _animator.SetBool("isGrounded", isGrounded);
+        }
+
+        // Freeze movement while punching to prevent sliding.
+        // Also freeze while the Animator is still in the Punch state or
+        // transitioning out of it, so there's no brief sprint-slide during the blend.
+        bool freezeForPunch = _gathering != null && _gathering.IsPunching;
+        if (!freezeForPunch && _animator != null)
+        {
+            AnimatorStateInfo state = _animator.GetCurrentAnimatorStateInfo(0);
+            if (state.IsName("Punch"))
+                freezeForPunch = true;
+        }
+
+        if (freezeForPunch)
+        {
+            if (_animator != null) _animator.SetFloat("Speed", 0f);
+            // Still apply gravity so the player doesn't float
+            _velocity.y += gravity * Time.deltaTime;
+            _cc.Move(_velocity * Time.deltaTime);
+            return;
         }
 
         // Read input
