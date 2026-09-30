@@ -1,3 +1,4 @@
+using System.Collections;
 using Unity.Netcode;
 using UnityEngine;
 
@@ -67,6 +68,15 @@ public class PlayerGathering : NetworkBehaviour
 
     private InputSystem_Actions _inputActions;
     private Camera _playerCamera;
+    private Animator _animator;
+    private Coroutine _punchRoutine;
+    private bool _punchQueued;
+
+    /// <summary>
+    /// True while the punch animation is playing.
+    /// Read by PlayerController to freeze movement during the swing.
+    /// </summary>
+    public bool IsPunching { get; private set; }
 
     // ───────────────────────── Lifecycle ─────────────────────────
 
@@ -99,6 +109,8 @@ public class PlayerGathering : NetworkBehaviour
 
         _inputActions = new InputSystem_Actions();
         _inputActions.Player.Enable();
+
+        _animator = GetComponentInChildren<Animator>();
 
         // Find the player's camera. It's a child of the camera pivot on this player.
         // We use FindMainCamera() in Update since the camera might not be active yet.
@@ -137,7 +149,77 @@ public class PlayerGathering : NetworkBehaviour
         // since it's already bound and makes sense for "swing tool at resource"
         if (_inputActions.Player.Attack.WasPressedThisFrame())
         {
+            if (IsPunching)
+            {
+                // Already punching — queue the next punch to play after this one finishes
+                _punchQueued = true;
+            }
+            else
+            {
+                StartPunch();
+            }
+
             TryGather();
+        }
+    }
+
+    /// <summary>
+    /// Begins a punch: plays the animation and starts the movement-lock timer.
+    /// </summary>
+    private void StartPunch()
+    {
+        _punchQueued = false;
+
+        if (_animator != null)
+        {
+            // Force-play Punch from frame 0, bypassing transitions (no Idle flicker)
+            _animator.Play("Punch", 0, 0f);
+        }
+
+        if (_punchRoutine != null) StopCoroutine(_punchRoutine);
+        _punchRoutine = StartCoroutine(PunchDuration());
+    }
+
+    /// <summary>
+    /// Locks movement for the punch animation duration.
+    /// Polls the Animator each frame to detect the exact moment the Punch clip
+    /// finishes, then either chains into a queued punch or unlocks movement.
+    /// </summary>
+    private IEnumerator PunchDuration()
+    {
+        IsPunching = true;
+
+        // Wait one frame for the Animator to enter the Punch state
+        yield return null;
+
+        // Poll until the Punch animation finishes (normalizedTime >= 1.0)
+        while (_animator != null)
+        {
+            AnimatorStateInfo stateInfo = _animator.GetCurrentAnimatorStateInfo(0);
+
+            // Check we're still in the Punch state and it has completed
+            if (stateInfo.IsName("Punch") && stateInfo.normalizedTime >= 1f)
+            {
+                break;
+            }
+
+            // If we've already left Punch (shouldn't happen, but safety check)
+            if (!stateInfo.IsName("Punch"))
+            {
+                break;
+            }
+
+            yield return null;
+        }
+
+        if (_punchQueued)
+        {
+            // Chain directly into the next punch — no Idle in between
+            StartPunch();
+        }
+        else
+        {
+            IsPunching = false;
         }
     }
 
