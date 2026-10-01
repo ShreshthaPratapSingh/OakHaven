@@ -50,6 +50,24 @@ public class InventoryUI : MonoBehaviour
     [Tooltip("Total number of visual slots to display (includes empty ones).")]
     [SerializeField] private int displaySlotCount = 20;
 
+    [Header("Weight Display")]
+    [Tooltip("Slider showing current weight as a fraction of max carry weight. " +
+             "Leave null if you don't want a weight bar yet.")]
+    [SerializeField] private Slider weightBarSlider;
+
+    [Tooltip("Text displaying 'XX.X / YY.Y kg' weight values. " +
+             "Leave null if you don't want weight text yet.")]
+    [SerializeField] private TMP_Text weightText;
+
+    [Tooltip("Color of the weight bar when under 70% capacity.")]
+    [SerializeField] private Color weightBarNormalColor = new Color(0.3f, 0.8f, 0.4f);
+
+    [Tooltip("Color of the weight bar when between 70-90% capacity.")]
+    [SerializeField] private Color weightBarWarningColor = new Color(1f, 0.7f, 0.2f);
+
+    [Tooltip("Color of the weight bar when over 90% capacity.")]
+    [SerializeField] private Color weightBarFullColor = new Color(0.9f, 0.2f, 0.2f);
+
     // ───────────────────────── Private State ─────────────────────────
 
     private Inventory _localInventory;
@@ -158,6 +176,8 @@ public class InventoryUI : MonoBehaviour
         if (_isSubscribed || _localInventory == null) return;
 
         _localInventory.Items.OnListChanged += OnInventoryChanged;
+        _localInventory.CurrentWeight.OnValueChanged += OnWeightChanged;
+        _localInventory.MaxWeight.OnValueChanged += OnWeightChanged;
         _isSubscribed = true;
     }
 
@@ -166,6 +186,8 @@ public class InventoryUI : MonoBehaviour
         if (!_isSubscribed || _localInventory == null) return;
 
         _localInventory.Items.OnListChanged -= OnInventoryChanged;
+        _localInventory.CurrentWeight.OnValueChanged -= OnWeightChanged;
+        _localInventory.MaxWeight.OnValueChanged -= OnWeightChanged;
         _isSubscribed = false;
     }
 
@@ -183,6 +205,15 @@ public class InventoryUI : MonoBehaviour
     private void OnInventoryChanged(NetworkListEvent<InventoryItem> changeEvent)
     {
         RebuildUI();
+    }
+
+    /// <summary>
+    /// Called whenever CurrentWeight or MaxWeight NetworkVariables change.
+    /// Updates the weight bar without rebuilding the entire slot grid.
+    /// </summary>
+    private void OnWeightChanged(float previousValue, float newValue)
+    {
+        UpdateWeightBar();
     }
 
     // ───────────────────────── UI Building ─────────────────────────
@@ -214,6 +245,53 @@ public class InventoryUI : MonoBehaviour
         for (int i = 0; i < emptyCount; i++)
         {
             CreateEmptySlot();
+        }
+
+        // Update the weight bar to reflect current state
+        UpdateWeightBar();
+    }
+
+    /// <summary>
+    /// Updates the weight bar slider and text to reflect current/max carry weight.
+    /// Reads from the Inventory's NetworkVariables (replicated from server).
+    /// Changes color based on how full the inventory is.
+    /// </summary>
+    private void UpdateWeightBar()
+    {
+        if (_localInventory == null) return;
+
+        float current = _localInventory.CurrentWeight.Value;
+        float max = _localInventory.MaxWeight.Value;
+        float ratio = (max > 0f) ? Mathf.Clamp01(current / max) : 0f;
+
+        // Update slider
+        if (weightBarSlider != null)
+        {
+            weightBarSlider.value = ratio;
+
+            // Color the fill based on capacity
+            Image fillImage = weightBarSlider.fillRect?.GetComponent<Image>();
+            if (fillImage != null)
+            {
+                if (ratio >= 0.9f)
+                    fillImage.color = weightBarFullColor;
+                else if (ratio >= 0.7f)
+                    fillImage.color = weightBarWarningColor;
+                else
+                    fillImage.color = weightBarNormalColor;
+            }
+        }
+
+        // Update text
+        if (weightText != null)
+        {
+            weightText.text = $"{current:F1} / {max:F1}";
+
+            // Also color the text when near/at capacity
+            if (ratio >= 0.9f)
+                weightText.color = weightBarFullColor;
+            else
+                weightText.color = Color.white;
         }
     }
 

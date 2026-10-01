@@ -32,6 +32,11 @@ public class ItemDefinition : ScriptableObject
     [Tooltip("Maximum number of this item per inventory slot.")]
     public int maxStackSize = 99;
 
+    [Header("Weight")]
+    [Tooltip("Weight per single unit of this item. Used by the Inventory's carry-capacity system. " +
+             "Total weight = sum of (quantity × weight) across all slots.")]
+    public float weight = 1f;
+
     [Header("Classification")]
     [Tooltip("Category for UI filtering/sorting (e.g. 'Resource', 'Tool', 'Consumable').")]
     public string category = "Resource";

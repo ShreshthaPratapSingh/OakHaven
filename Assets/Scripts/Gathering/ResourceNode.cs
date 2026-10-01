@@ -181,28 +181,39 @@ public class ResourceNode : NetworkBehaviour
             }
         }
 
-        // ── Reduce health ──
-        CurrentHealth.Value -= 1;
-        Debug.Log($"[ResourceNode] '{resourceType}' hit by client {hitterClientId}. " +
-                  $"Health: {CurrentHealth.Value}/{maxHealth}");
-
-        // ── Grant resource to hitter's inventory ──
+        // ── Try to grant resource to hitter's inventory BEFORE reducing health ──
+        // If the player can't carry any of it, don't damage the tree
         if (NetworkManager.Singleton.ConnectedClients.TryGetValue(hitterClientId, out var hitterClient))
         {
             var inventory = hitterClient.PlayerObject?.GetComponent<Inventory>();
             if (inventory != null)
             {
-                // This runs on the server, so we call AddItem directly (not via RPC)
-                inventory.AddItem(resourceType, amountPerHit);
+                // AddItem returns how many were actually added (0 = rejected due to weight/full)
+                int added = inventory.AddItem(resourceType, amountPerHit);
+
+                if (added == 0)
+                {
+                    // Player can't carry anything — don't damage the tree
+                    Debug.Log($"[ResourceNode] '{resourceType}' hit by client {hitterClientId} " +
+                              $"but player can't carry any more — tree not damaged.");
+                    return;
+                }
+
+                // At least some items were added — reduce health
+                CurrentHealth.Value -= 1;
+                Debug.Log($"[ResourceNode] '{resourceType}' hit by client {hitterClientId}. " +
+                          $"Granted {added}/{amountPerHit}. Health: {CurrentHealth.Value}/{maxHealth}");
             }
             else
             {
                 Debug.LogError($"[ResourceNode] Client {hitterClientId}'s player has no Inventory component!");
+                return;
             }
         }
         else
         {
             Debug.LogError($"[ResourceNode] Client {hitterClientId} not found in ConnectedClients!");
+            return;
         }
 
         // ── Despawn if depleted ──
