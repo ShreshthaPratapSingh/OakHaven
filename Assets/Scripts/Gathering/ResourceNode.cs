@@ -224,10 +224,8 @@ public class ResourceNode : NetworkBehaviour
             // Notify all clients before despawning (for VFX/SFX)
             OnDepletedClientRpc();
 
-            // Despawn the NetworkObject. For in-scene objects, this hides it
-            // from all clients. It can be re-spawned later if needed.
-            // destroy: false keeps the GameObject alive on the server for potential respawning.
-            NetworkObject.Despawn(destroy: false);
+            // Despawn and destroy the NetworkObject on all clients + server.
+            NetworkObject.Despawn(destroy: true);
         }
     }
 
