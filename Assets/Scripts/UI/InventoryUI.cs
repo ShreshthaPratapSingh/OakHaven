@@ -47,8 +47,11 @@ public class InventoryUI : MonoBehaviour
     [Tooltip("Sprite to show in empty/unused slots. Leave null for no empty slots.")]
     [SerializeField] private Sprite emptySlotSprite;
 
-    [Tooltip("Total number of visual slots to display (includes empty ones).")]
-    [SerializeField] private int displaySlotCount = 20;
+    [Tooltip("Number of resource slots to display (includes empty ones).")]
+    [SerializeField] private int resourceSlotCount = 10;
+
+    [Tooltip("Number of equipment slots to display (includes empty ones).")]
+    [SerializeField] private int equipmentSlotCount = 10;
 
     [Header("Weight Display")]
     [Tooltip("Slider showing current weight as a fraction of max carry weight. " +
@@ -70,38 +73,155 @@ public class InventoryUI : MonoBehaviour
 
     // ───────────────────────── Private State ─────────────────────────
 
-    private Inventory _localInventory;
+    private Inventory _localInventory;          // Equipment (tools, weapons)
+    private ResourceInventory _localResources;  // Raw materials (wood, stone, fiber)
     private bool _isSubscribed;
-    private Transform _slotContainer; // Auto-discovered at runtime from inventoryPanel
+    private Transform _slotContainer;           // Original grid (kept as reference)
+    private Transform _resourceContainer;       // Programmatically created resource grid
+    private Transform _equipmentContainer;      // Programmatically created equipment grid
     private readonly List<GameObject> _slotInstances = new List<GameObject>();
+    private readonly List<GameObject> _sectionObjects = new List<GameObject>(); // Labels + containers
 
     // ───────────────────────── Lifecycle ─────────────────────────
 
     private void Start()
     {
-        // Start with inventory hidden
         if (inventoryPanel != null)
         {
             inventoryPanel.SetActive(false);
 
-            // Auto-discover the slot container: find the first child with a GridLayoutGroup
+            // Auto-discover the original slot container (GridLayoutGroup)
             _slotContainer = FindSlotContainer();
             if (_slotContainer == null)
             {
                 Debug.LogError("[InventoryUI] Could not find a child with GridLayoutGroup " +
-                               "inside the inventoryPanel! Add a GridLayoutGroup to the " +
-                               "container where slots should appear.");
+                               "inside the inventoryPanel!");
             }
             else
             {
-                Debug.Log($"[InventoryUI] Auto-discovered slot container: '{_slotContainer.name}'");
+                // Build two separate sections from the original grid
+                BuildSectionLayout();
+                Debug.Log("[InventoryUI] Built Resources + Equipment sections.");
             }
         }
         else
         {
-            Debug.LogError("[InventoryUI] inventoryPanel is not assigned! " +
-                           "Drag your InventoryPanel from the Hierarchy into this field.");
+            Debug.LogError("[InventoryUI] inventoryPanel is not assigned!");
         }
+    }
+
+    /// <summary>
+    /// Programmatically creates two labeled sections inside the inventory panel:
+    /// "Resources" grid and "Equipment" grid, using the original GridLayoutGroup
+    /// settings as a template. Requires NO Inspector changes.
+    /// </summary>
+    private void BuildSectionLayout()
+    {
+        // Get the parent that holds the original grid container
+        Transform layoutParent = _slotContainer.parent != null ? _slotContainer.parent : _slotContainer;
+
+        // Copy grid settings from the original container
+        GridLayoutGroup originalGrid = _slotContainer.GetComponent<GridLayoutGroup>();
+        Vector2 cellSize = originalGrid != null ? originalGrid.cellSize : new Vector2(64, 64);
+        Vector2 spacing = originalGrid != null ? originalGrid.spacing : new Vector2(4, 4);
+        RectOffset padding = originalGrid != null ? originalGrid.padding : new RectOffset();
+        int columns = originalGrid != null ? originalGrid.constraintCount : 5;
+
+        // Hide the original container — we'll use our new ones instead
+        _slotContainer.gameObject.SetActive(false);
+
+        // Add a VerticalLayoutGroup to the panel if it doesn't have one
+        // (so the sections stack vertically)
+        var parentLayout = layoutParent.GetComponent<VerticalLayoutGroup>();
+        if (parentLayout == null)
+        {
+            parentLayout = layoutParent.gameObject.AddComponent<VerticalLayoutGroup>();
+            parentLayout.childControlWidth = true;
+            parentLayout.childControlHeight = false;
+            parentLayout.childForceExpandWidth = true;
+            parentLayout.childForceExpandHeight = false;
+            parentLayout.spacing = 8f;
+            parentLayout.padding = new RectOffset(8, 8, 8, 8);
+        }
+
+        // ── Create RESOURCES section ──
+        _resourceContainer = CreateSection(layoutParent, "Resources",
+            cellSize, spacing, padding, columns);
+
+        // ── Create EQUIPMENT section ──
+        _equipmentContainer = CreateSection(layoutParent, "Equipment",
+            cellSize, spacing, padding, columns);
+
+        // ── Move weight bar to the bottom of the layout ──
+        // The Slider and weight text are existing children of the panel.
+        // The VerticalLayoutGroup will squish them unless we move them to the end
+        // and give them a proper height via LayoutElement.
+        if (weightBarSlider != null)
+        {
+            weightBarSlider.transform.SetAsLastSibling();
+            var sliderLE = weightBarSlider.gameObject.GetComponent<LayoutElement>();
+            if (sliderLE == null) sliderLE = weightBarSlider.gameObject.AddComponent<LayoutElement>();
+            sliderLE.preferredHeight = 20f;
+            sliderLE.minHeight = 20f;
+        }
+
+        if (weightText != null)
+        {
+            weightText.transform.SetAsLastSibling();
+            var textLE = weightText.gameObject.GetComponent<LayoutElement>();
+            if (textLE == null) textLE = weightText.gameObject.AddComponent<LayoutElement>();
+            textLE.preferredHeight = 24f;
+            textLE.minHeight = 24f;
+        }
+    }
+
+    /// <summary>
+    /// Creates a labeled section: a header TMP_Text + a GridLayoutGroup container.
+    /// </summary>
+    private Transform CreateSection(Transform parent, string label,
+        Vector2 cellSize, Vector2 spacing, RectOffset padding, int columns)
+    {
+        // ── Header label ──
+        GameObject headerObj = new GameObject($"{label}Header");
+        headerObj.transform.SetParent(parent, false);
+        _sectionObjects.Add(headerObj);
+
+        RectTransform headerRect = headerObj.AddComponent<RectTransform>();
+        headerRect.sizeDelta = new Vector2(0, 24);
+
+        var tmpText = headerObj.AddComponent<TMPro.TextMeshProUGUI>();
+        tmpText.text = label.ToUpper();
+        tmpText.fontSize = 24;
+        tmpText.fontStyle = TMPro.FontStyles.Bold;
+        tmpText.color = new Color(0f, 0f, 0f, 1f);
+        tmpText.alignment = TMPro.TextAlignmentOptions.Left;
+
+        // ── Grid container ──
+        GameObject containerObj = new GameObject($"{label}Container");
+        containerObj.transform.SetParent(parent, false);
+        _sectionObjects.Add(containerObj);
+
+        RectTransform containerRect = containerObj.AddComponent<RectTransform>();
+        containerRect.sizeDelta = new Vector2(0, 0);
+
+        // Add Image component for background (optional subtle tint)
+        var bg = containerObj.AddComponent<Image>();
+        bg.color = new Color(0f, 0f, 0f, 0.15f);
+
+        // Add GridLayoutGroup matching the original
+        var grid = containerObj.AddComponent<GridLayoutGroup>();
+        grid.cellSize = cellSize;
+        grid.spacing = spacing;
+        grid.padding = new RectOffset(padding.left, padding.right, padding.top, padding.bottom);
+        grid.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
+        grid.constraintCount = columns;
+        grid.childAlignment = TextAnchor.UpperLeft;
+
+        // Add ContentSizeFitter so the grid expands to fit its children
+        var fitter = containerObj.AddComponent<ContentSizeFitter>();
+        fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        return containerObj.transform;
     }
 
     private void Update()
@@ -159,35 +279,58 @@ public class InventoryUI : MonoBehaviour
         if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsClient) return;
         if (NetworkManager.Singleton.LocalClient?.PlayerObject == null) return;
 
-        var inventory = NetworkManager.Singleton.LocalClient.PlayerObject.GetComponent<Inventory>();
-        if (inventory == null) return;
+        var playerObj = NetworkManager.Singleton.LocalClient.PlayerObject;
+        var inventory = playerObj.GetComponent<Inventory>();
+        var resources = playerObj.GetComponent<ResourceInventory>();
+
+        // Wait until both are available
+        if (inventory == null || resources == null) return;
 
         _localInventory = inventory;
+        _localResources = resources;
         SubscribeToInventory();
-        RebuildUI(); // Initial build with current state
+        RebuildUI();
 
-        Debug.Log("[InventoryUI] Found local player's inventory — UI ready.");
+        Debug.Log("[InventoryUI] Found local player's inventories (Equipment + Resources) — UI ready.");
     }
 
     // ───────────────────────── Subscription Management ─────────────────────────
 
     private void SubscribeToInventory()
     {
-        if (_isSubscribed || _localInventory == null) return;
+        if (_isSubscribed || _localInventory == null || _localResources == null) return;
 
+        // Subscribe to equipment changes
         _localInventory.Items.OnListChanged += OnInventoryChanged;
         _localInventory.CurrentWeight.OnValueChanged += OnWeightChanged;
         _localInventory.MaxWeight.OnValueChanged += OnWeightChanged;
+
+        // Subscribe to resource changes
+        _localResources.Items.OnListChanged += OnInventoryChanged;
+        _localResources.CurrentWeight.OnValueChanged += OnWeightChanged;
+        _localResources.MaxWeight.OnValueChanged += OnWeightChanged;
+
         _isSubscribed = true;
     }
 
     private void UnsubscribeFromInventory()
     {
-        if (!_isSubscribed || _localInventory == null) return;
+        if (!_isSubscribed) return;
 
-        _localInventory.Items.OnListChanged -= OnInventoryChanged;
-        _localInventory.CurrentWeight.OnValueChanged -= OnWeightChanged;
-        _localInventory.MaxWeight.OnValueChanged -= OnWeightChanged;
+        if (_localInventory != null)
+        {
+            _localInventory.Items.OnListChanged -= OnInventoryChanged;
+            _localInventory.CurrentWeight.OnValueChanged -= OnWeightChanged;
+            _localInventory.MaxWeight.OnValueChanged -= OnWeightChanged;
+        }
+
+        if (_localResources != null)
+        {
+            _localResources.Items.OnListChanged -= OnInventoryChanged;
+            _localResources.CurrentWeight.OnValueChanged -= OnWeightChanged;
+            _localResources.MaxWeight.OnValueChanged -= OnWeightChanged;
+        }
+
         _isSubscribed = false;
     }
 
@@ -224,7 +367,9 @@ public class InventoryUI : MonoBehaviour
     /// </summary>
     private void RebuildUI()
     {
-        if (_slotContainer == null || slotPrefab == null || _localInventory == null) return;
+        if (slotPrefab == null) return;
+        if (_localInventory == null || _localResources == null) return;
+        if (_resourceContainer == null || _equipmentContainer == null) return;
 
         // Clear existing slots
         foreach (var slot in _slotInstances)
@@ -233,21 +378,28 @@ public class InventoryUI : MonoBehaviour
         }
         _slotInstances.Clear();
 
-        // Build occupied slots from inventory data
+        // ── Build RESOURCE slots ──
+        for (int i = 0; i < _localResources.Items.Count; i++)
+        {
+            CreateSlot(_localResources.Items[i], _resourceContainer);
+        }
+        int resourceEmpty = resourceSlotCount - _localResources.Items.Count;
+        for (int i = 0; i < resourceEmpty; i++)
+        {
+            CreateEmptySlot(_resourceContainer);
+        }
+
+        // ── Build EQUIPMENT slots ──
         for (int i = 0; i < _localInventory.Items.Count; i++)
         {
-            InventoryItem item = _localInventory.Items[i];
-            CreateSlot(item);
+            CreateSlot(_localInventory.Items[i], _equipmentContainer);
         }
-
-        // Fill remaining slots with empty placeholders
-        int emptyCount = displaySlotCount - _localInventory.Items.Count;
-        for (int i = 0; i < emptyCount; i++)
+        int equipEmpty = equipmentSlotCount - _localInventory.Items.Count;
+        for (int i = 0; i < equipEmpty; i++)
         {
-            CreateEmptySlot();
+            CreateEmptySlot(_equipmentContainer);
         }
 
-        // Update the weight bar to reflect current state
         UpdateWeightBar();
     }
 
@@ -258,10 +410,11 @@ public class InventoryUI : MonoBehaviour
     /// </summary>
     private void UpdateWeightBar()
     {
-        if (_localInventory == null) return;
+        if (_localInventory == null || _localResources == null) return;
 
-        float current = _localInventory.CurrentWeight.Value;
-        float max = _localInventory.MaxWeight.Value;
+        // Sum weights from BOTH inventories
+        float current = _localInventory.CurrentWeight.Value + _localResources.CurrentWeight.Value;
+        float max = _localInventory.MaxWeight.Value + _localResources.MaxWeight.Value;
         float ratio = (max > 0f) ? Mathf.Clamp01(current / max) : 0f;
 
         // Update slider
@@ -269,7 +422,6 @@ public class InventoryUI : MonoBehaviour
         {
             weightBarSlider.value = ratio;
 
-            // Color the fill based on capacity
             Image fillImage = weightBarSlider.fillRect?.GetComponent<Image>();
             if (fillImage != null)
             {
@@ -287,7 +439,6 @@ public class InventoryUI : MonoBehaviour
         {
             weightText.text = $"{current:F1} / {max:F1}";
 
-            // Also color the text when near/at capacity
             if (ratio >= 0.9f)
                 weightText.color = weightBarFullColor;
             else
@@ -299,9 +450,9 @@ public class InventoryUI : MonoBehaviour
     /// Creates a single populated slot from inventory data.
     /// Looks up the ItemDefinition for display name and icon.
     /// </summary>
-    private void CreateSlot(InventoryItem item)
+    private void CreateSlot(InventoryItem item, Transform parent)
     {
-        GameObject slotObj = Instantiate(slotPrefab, _slotContainer);
+        GameObject slotObj = Instantiate(slotPrefab, parent);
         _slotInstances.Add(slotObj);
 
         // Ensure proper layout on the Icon and QuantityText children
@@ -349,9 +500,9 @@ public class InventoryUI : MonoBehaviour
     /// <summary>
     /// Creates an empty slot placeholder.
     /// </summary>
-    private void CreateEmptySlot()
+    private void CreateEmptySlot(Transform parent)
     {
-        GameObject slotObj = Instantiate(slotPrefab, _slotContainer);
+        GameObject slotObj = Instantiate(slotPrefab, parent);
         _slotInstances.Add(slotObj);
 
         ConfigureSlotLayout(slotObj);
@@ -449,7 +600,19 @@ public class InventoryUI : MonoBehaviour
 
         if (newState)
         {
-            // Opening inventory — unlock cursor for UI interaction
+            // Opening inventory — rebuild content and force layout recalculation
+            RebuildUI();
+
+            // Force Unity to recalculate all layout groups immediately
+            // (without this, the first open has broken layout because
+            // VerticalLayoutGroup/ContentSizeFitter haven't calculated yet)
+            Canvas.ForceUpdateCanvases();
+            var panelRect = inventoryPanel.GetComponent<RectTransform>();
+            if (panelRect != null)
+            {
+                LayoutRebuilder.ForceRebuildLayoutImmediate(panelRect);
+            }
+
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
         }
