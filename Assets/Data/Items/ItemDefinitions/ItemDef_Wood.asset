@@ -16,4 +16,5 @@ MonoBehaviour:
   displayName: Wood
   icon: {fileID: 529292748310599921, guid: 27750c29e393cc84ca6bbf691c8f9247, type: 3}
   maxStackSize: 50
+  weight: 1
   category: Resource

@@ -181,21 +181,22 @@ public class ResourceNode : NetworkBehaviour
             }
         }
 
-        // ── Try to grant resource to hitter's inventory BEFORE reducing health ──
-        // If the player can't carry any of it, don't damage the tree
+        // ── Grant resource to the hitting player's ResourceInventory ──
+        // Each player has their own ResourceInventory for raw materials.
+        // If the player's resource inventory is full, don't damage the tree.
         if (NetworkManager.Singleton.ConnectedClients.TryGetValue(hitterClientId, out var hitterClient))
         {
-            var inventory = hitterClient.PlayerObject?.GetComponent<Inventory>();
-            if (inventory != null)
+            var resourceInv = hitterClient.PlayerObject?.GetComponent<ResourceInventory>();
+            if (resourceInv != null)
             {
                 // AddItem returns how many were actually added (0 = rejected due to weight/full)
-                int added = inventory.AddItem(resourceType, amountPerHit);
+                int added = resourceInv.AddItem(resourceType, amountPerHit);
 
                 if (added == 0)
                 {
-                    // Player can't carry anything — don't damage the tree
+                    // Player can't carry any more — don't damage the tree
                     Debug.Log($"[ResourceNode] '{resourceType}' hit by client {hitterClientId} " +
-                              $"but player can't carry any more — tree not damaged.");
+                              $"but player's resource inventory is full — tree not damaged.");
                     return;
                 }
 
@@ -206,7 +207,7 @@ public class ResourceNode : NetworkBehaviour
             }
             else
             {
-                Debug.LogError($"[ResourceNode] Client {hitterClientId}'s player has no Inventory component!");
+                Debug.LogError($"[ResourceNode] Client {hitterClientId}'s player has no ResourceInventory component!");
                 return;
             }
         }
