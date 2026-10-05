@@ -173,7 +173,7 @@ public class PlayerGathering : NetworkBehaviour
         if (_animator != null)
         {
             // Force-play Punch from frame 0, bypassing transitions (no Idle flicker)
-            _animator.Play("Punch", 0, 0f);
+            _animator.SetTrigger("Punch");
         }
 
         if (_punchRoutine != null) StopCoroutine(_punchRoutine);
@@ -195,7 +195,7 @@ public class PlayerGathering : NetworkBehaviour
         // Poll until the Punch animation finishes (normalizedTime >= 1.0)
         while (_animator != null)
         {
-            AnimatorStateInfo stateInfo = _animator.GetCurrentAnimatorStateInfo(0);
+            AnimatorStateInfo stateInfo = _animator.GetCurrentAnimatorStateInfo(1);
 
             // Check we're still in the Punch state and it has completed
             if (stateInfo.IsName("Punch") && stateInfo.normalizedTime >= 1f)

@@ -21,6 +21,8 @@ public class PlayerController : NetworkBehaviour
     [SerializeField] private float jumpHeight = 1.2f;
     [SerializeField] private float gravity = -15f;
     [SerializeField] private float turnSmoothTime = 0.1f;
+    [SerializeField] private float acceleration = 8f;
+    [SerializeField] private float deceleration = 8f;
 
     [Header("Camera")]
     [SerializeField] private float mouseSensitivity = 2f;
@@ -57,6 +59,9 @@ public class PlayerController : NetworkBehaviour
     private float _cameraYaw;            // Current camera yaw angle
     private float _turnSmoothVelocity;   // SmoothDampAngle ref
     private bool _movementReady;         // True once CC is properly teleported and enabled
+    private float _currentSpeed;
+    private Vector3 _lastMoveDir;
+    private Quaternion _cachedModelRotation;
 
     // ───────────────────────── Network Lifecycle ─────────────────────────
 
@@ -135,6 +140,8 @@ public class PlayerController : NetworkBehaviour
         _cc.enabled = true;
         _movementReady = true;
 
+        
+
         // Update saved spawn position in case we used fallback
         _spawnPosition = targetPos;
 
@@ -170,6 +177,10 @@ public class PlayerController : NetworkBehaviour
 
     private void LateUpdate()
     {
+        if (_gathering != null && _gathering.IsPunching && playerModel != null)
+        {
+            playerModel.rotation = _cachedModelRotation;
+        }
         // Position the camera after all movement has been applied.
         UpdateCameraPosition();
     }
@@ -232,26 +243,6 @@ public class PlayerController : NetworkBehaviour
             _animator.SetBool("isGrounded", isGrounded);
         }
 
-        // Freeze movement while punching to prevent sliding.
-        // Also freeze while the Animator is still in the Punch state or
-        // transitioning out of it, so there's no brief sprint-slide during the blend.
-        bool freezeForPunch = _gathering != null && _gathering.IsPunching;
-        if (!freezeForPunch && _animator != null)
-        {
-            AnimatorStateInfo state = _animator.GetCurrentAnimatorStateInfo(0);
-            if (state.IsName("Punch"))
-                freezeForPunch = true;
-        }
-
-        if (freezeForPunch)
-        {
-            if (_animator != null) _animator.SetFloat("Speed", 0f);
-            // Still apply gravity so the player doesn't float
-            _velocity.y += gravity * Time.deltaTime;
-            _cc.Move(_velocity * Time.deltaTime);
-            return;
-        }
-
         // Read input
         Vector2 moveInput = _inputActions.Player.Move.ReadValue<Vector2>();
         bool isSprinting = _inputActions.Player.Sprint.IsPressed();
@@ -262,11 +253,17 @@ public class PlayerController : NetworkBehaviour
         Vector3 moveDir = (forward * moveInput.y + right * moveInput.x).normalized;
 
         // Apply movement
-        float speed = isSprinting ? sprintSpeed : walkSpeed;
-        _cc.Move(moveDir * speed * Time.deltaTime);
+        if (moveDir.sqrMagnitude > 0.01f)
+        {
+            _lastMoveDir = moveDir;
+        }
+        float targetSpeed = moveDir.sqrMagnitude > 0.01f ? (isSprinting ? sprintSpeed : walkSpeed) : 0f;
+        float acelRate = _currentSpeed < targetSpeed ? acceleration : deceleration;
+        _currentSpeed = Mathf.MoveTowards(_currentSpeed, targetSpeed, acelRate * Time.deltaTime);
+        _cc.Move(_lastMoveDir * _currentSpeed * Time.deltaTime);
         if (_animator != null)
         {
-            _animator.SetFloat("Speed", moveInput.magnitude * speed);
+            _animator.SetFloat("Speed", _currentSpeed);
         }
 
         // Rotate model toward movement direction (third-person style)
@@ -277,6 +274,8 @@ public class PlayerController : NetworkBehaviour
                 playerModel.eulerAngles.y, targetAngle, ref _turnSmoothVelocity, turnSmoothTime);
             playerModel.rotation = Quaternion.Euler(0f, smoothedAngle, 0f);
         }
+
+        _cachedModelRotation = playerModel.rotation;
 
         // Jump
         if (_inputActions.Player.Jump.WasPressedThisFrame() && isGrounded)
