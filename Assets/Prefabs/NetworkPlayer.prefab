@@ -249,6 +249,8 @@ MonoBehaviour:
   jumpHeight: 1.2
   gravity: -15
   turnSmoothTime: 0.1
+  acceleration: 4
+  deceleration: 4
   mouseSensitivity: 0.3
   cameraPitchMin: -30
   cameraPitchMax: 60
