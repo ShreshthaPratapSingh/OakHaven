@@ -15,7 +15,7 @@ using UnityEngine;
 /// 3. Add the recipe to a WorkstationDefinition's availableRecipes array.
 /// </summary>
 
-[CreateAssetMenu(fileName = "CraftingReciipe", menuName = "Scriptable Objects/CraftingReciipe")]
+[CreateAssetMenu(fileName = "CraftingRecipe", menuName = "Scriptable Objects/CraftingRecipe")]
 public class CraftingRecipe : ScriptableObject
 {
     [Header("Identity")]
@@ -37,7 +37,7 @@ public class CraftingRecipe : ScriptableObject
     public string outputItemId;
 
     [Tooltip("How many of the output item are produced per craft (usually 1 for tools).")]
-    public int outputQuantity;
+    public int outputQuantity = 1;
 
     [Header("Crafting Time")]
     [Tooltip("Seconds to complete the craft. 0 = instant. " +
