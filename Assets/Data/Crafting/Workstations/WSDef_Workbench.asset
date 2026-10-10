@@ -12,7 +12,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d82cb3e6e03360844b91895ef4479035, type: 3}
   m_Name: WSDef_Workbench
   m_EditorClassIdentifier: Assembly-CSharp::WorkingStationDefinition
-  workstationType: 
-  displayName: 
-  repairCosts: []
-  availableRecipes: []
+  workstationType: workbench
+  displayName: Workbench
+  repairCosts:
+  - itemId: wood
+    quantity: 20
+  - itemId: stone
+    quantity: 10
+  - itemId: fiber
+    quantity: 15
+  availableRecipes:
+  - {fileID: 11400000, guid: 2f36ade573884124fa98754bfae351f4, type: 2}

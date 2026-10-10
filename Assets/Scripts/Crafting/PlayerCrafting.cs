@@ -39,6 +39,7 @@ public class PlayerCrafting : NetworkBehaviour
     /// The workstation currently in range (closest one). Null if none nearby.
     /// </summary>
     private Workstation _nearbyWorkstation;
+    private WorkstationUI _workstationUI;
 
     // ───────────────────────── Public Accessors ─────────────────────────
 
@@ -59,6 +60,9 @@ public class PlayerCrafting : NetworkBehaviour
         // Exclude our own layer from detection (same pattern as PlayerGathering)
         int playerLayer = gameObject.layer;
         interactLayerMask = ~(1 << playerLayer);
+
+        _workstationUI = FindFirstObjectByType<WorkstationUI>();
+
     }
 
     // ───────────────────────── Update (Client-Side Only) ─────────────────────────
@@ -124,18 +128,42 @@ public class PlayerCrafting : NetworkBehaviour
             return;
         }
 
-        if (!_nearbyWorkstation.IsRepaired.Value)
+        // if (!_nearbyWorkstation.IsRepaired.Value)
+        // {
+        //     Debug.Log($"[PlayerCrafting] Workstation '{def.displayName}' needs repair. " +
+        //               $"Press interact to contribute resources.");
+        //     // TODO: Open repair UI panel
+        // }
+        // else
+        // {
+        //     Debug.Log($"[PlayerCrafting] Workstation '{def.displayName}' is ready. " +
+        //               $"Opening crafting menu...");
+        //     // TODO: Open crafting UI panel
+        // }
+
+                if (!_nearbyWorkstation.IsRepaired.Value)
         {
-            Debug.Log($"[PlayerCrafting] Workstation '{def.displayName}' needs repair. " +
-                      $"Press interact to contribute resources.");
-            // TODO: Open repair UI panel
+            // Open repair UI
+            if (_workstationUI != null)
+            {
+                if (_workstationUI.IsOpen)
+                    _workstationUI.ClosePanel();
+                else
+                    _workstationUI.OpenPanel(_nearbyWorkstation);
+            }
         }
         else
         {
-            Debug.Log($"[PlayerCrafting] Workstation '{def.displayName}' is ready. " +
-                      $"Opening crafting menu...");
-            // TODO: Open crafting UI panel
+            // Open crafting UI
+            if (_workstationUI != null)
+            {
+                if (_workstationUI.IsOpen)
+                    _workstationUI.ClosePanel();
+                else
+                    _workstationUI.OpenPanel(_nearbyWorkstation);
+            }
         }
+
     }
 
     // ───────────────────────── Public Methods (called by UI) ─────────────────────────
