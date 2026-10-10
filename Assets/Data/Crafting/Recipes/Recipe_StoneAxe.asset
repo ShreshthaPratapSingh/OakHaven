@@ -12,9 +12,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c695ff2bc6f71ef4f9fac6913e53c6a7, type: 3}
   m_Name: Recipe_StoneAxe
   m_EditorClassIdentifier: Assembly-CSharp::CraftingRecipe
-  recipeId: 
-  displayName: 
-  ingredients: []
-  outputItemId: 
-  outputQuantity: 0
+  recipeId: recipe_stone_axe
+  displayName: Stone Axe
+  ingredients:
+  - itemId: wood
+    quantity: 5
+  - itemId: stone
+    quantity: 7
+  outputItemId: stone_axe
+  outputQuantity: 1
   craftTimeSec: 0
