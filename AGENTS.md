@@ -11,20 +11,22 @@ Unity 6.6 project (`6000.6.0f1`), URP. First-person→third-person networked sur
 - `Assets/Scripts/Input/InputSystem_Actions.cs` is generated from `Assets/InputSystem_Actions.inputactions`. Change the `.inputactions` asset, not the `.cs`.
 - Every asset has a paired `.meta` (GUID). Never delete, rename, or create an asset without its `.meta`; missing/duplicated GUIDs break scene references.
 - Editing Unity YAML assets (`.unity`, `.prefab`, `.asset`) by hand is error-prone. Prefer editor menu tools or `SerializedObject` scripts (see `Assets/Scripts/Editor/NetworkingSetup.cs` for the pattern).
+- `Blender Assets/` at repo root is outside `Assets/`, so Unity never imports it — it holds .blend sources and exported FBX. Unity-importable copies of the exported FBX live under `Assets/ImportedAssets/`; keep them in sync.
 
 ## Architecture
 - Networking = Unity Netcode for GameObjects (`com.unity.netcode.gameobjects` 2.13.2) + Unity Gaming Services Relay/Auth. Server-authoritative:
   - Clients only read input and do local detection when `IsOwner` (e.g. `PlayerGathering`, `PlayerCrafting`, `PlayerController`).
   - State changes go through `ServerRpc` and the server validates before mutating; state replicates via `NetworkVariable` (ServerWrite / EveryoneRead).
   - Shared world objects (`ResourceNode`, `Workstation`) use `ServerRpc(RequireOwnership = false)`. This is exploitable by design — always validate on the server, never trust client-sent amounts/ids.
-- Player prefab (`Assets/Prefabs/NetworkPlayer.prefab`) holds two separate inventories, both extending `BaseInventory` (weight- + stack-aware): `Inventory` = equipment/tools, `ResourceInventory` = raw materials. They have independent slot/weight limits. UI currently reads the equipment one.
-- Data-driven via ScriptableObjects in `Assets/Data`: `ItemDefinition`, `CraftingRecipe`, `WorkstationDefinition`. Items/recipes are identified over the network by `string` id (`itemId`/`recipeId`) resolved through the static `ItemDatabase` — assets themselves are never sent.
+- Player prefab (`Assets/Prefabs/NetworkPlayer.prefab`) holds two separate inventories, both extending `BaseInventory` (weight- + stack-aware): `Inventory` = equipment/tools, `ResourceInventory` = raw materials. They have independent slot/weight limits; `InventoryUI` shows both and sums both weights for the weight bar. `Workstation` craft/repair consumes only from `ResourceInventory`.
+- Data-driven via ScriptableObjects in `Assets/Data`: `ItemDefinition`, `CraftingRecipe`, `WorkingStationDefinition` (note the class name). Items/recipes are identified over the network by `string` id (`itemId`/`recipeId`) resolved through the static `ItemDatabase` — assets themselves are never sent. Item ids are serialized in `FixedString32Bytes` (`InventoryItem.ItemId`), so keep `itemId` short (≤32 chars).
 - `ItemDatabaseLoader` must exist in any scene using inventory/crafting; it clears and repopulates `ItemDatabase` on `Awake`.
 - Initialization order is fragile: `PlayerController` disables `CharacterController` on spawn and re-enables it after waiting 2 frames so the connection-approval position can apply. Don't remove that coroutine.
 - Spawn position is hard-coded in two places — `RelayManager.spawnPosition` (625.08, 4.5, 436.94) and a `PlayerController` fallback. Keep them in sync if the level origin moves.
 
 ## Editor automation
 - `Tools > OakHaven > Setup Networking` creates/configures `NetworkManager`, `UnityTransport`, `NetworkPlayer.prefab`, relay UI, and registers the player prefab. `Rebuild Player Prefab` recreates it. Idempotent.
+- `Tools > Combine Selected Grass Mesh` (`Assets/Editor/GrassMeshCombiner.cs`) merges the selected GameObject's child MeshFilters into one baked mesh.
 - Networking requires the project linked to UGS and Relay enabled in the Unity Dashboard; without it Relay sign-in fails at runtime.
 
 ## Conventions
