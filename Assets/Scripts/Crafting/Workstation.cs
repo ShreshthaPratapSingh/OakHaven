@@ -30,6 +30,10 @@ public class Workstation : NetworkBehaviour
     [Tooltip("Maximum distance (meters) a player can be from this workstation to interact.")]
     [SerializeField] private float interactRange = 4f;
 
+    [Header("Repair VFX")]
+    [Tooltip("One-shot burst effect played on every connected client when the repair completes.")]
+    [SerializeField] private ParticleSystem repairEffect;
+
     // ───────────────────────── Networked State ─────────────────────────
 
     /// <summary>
@@ -354,7 +358,11 @@ public class Workstation : NetworkBehaviour
     private void OnRepairedClientRpc()
     {
         Debug.Log($"[Workstation] '{workstationDefinition?.displayName}' has been repaired!");
-        // TODO: Play repair complete VFX/SFX
+
+        if (repairEffect != null)
+        {
+            repairEffect.Play();
+        }
     }
 
     /// <summary>

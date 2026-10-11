@@ -189,6 +189,9 @@ public class PlayerController : NetworkBehaviour
 
     private void HandleCameraLook()
     {
+        // Ignore look input while the cursor is unlocked (any menu is open)
+        if (Cursor.lockState != CursorLockMode.Locked) return;
+
         Vector2 lookInput = _inputActions.Player.Look.ReadValue<Vector2>();
 
         _cameraYaw += lookInput.x * mouseSensitivity;
@@ -231,7 +234,11 @@ public class PlayerController : NetworkBehaviour
 
     private void HandleMovement()
     {
+        bool isUiOpen = Cursor.lockState != CursorLockMode.Locked;
+        Vector2 moveInput = isUiOpen ? Vector2.zero : _inputActions.Player.Move.ReadValue<Vector2>();
+        bool isSprinting = !isUiOpen && _inputActions.Player.Sprint.IsPressed();
         // Ground check
+        
         bool isGrounded = _cc.isGrounded;
         if (isGrounded && _velocity.y < 0f)
         {
@@ -244,8 +251,6 @@ public class PlayerController : NetworkBehaviour
         }
 
         // Read input
-        Vector2 moveInput = _inputActions.Player.Move.ReadValue<Vector2>();
-        bool isSprinting = _inputActions.Player.Sprint.IsPressed();
 
         // Calculate movement direction relative to the camera's yaw
         Vector3 forward = Quaternion.Euler(0f, _cameraYaw, 0f) * Vector3.forward;
