@@ -145,6 +145,8 @@ public class PlayerGathering : NetworkBehaviour
                       $"(layer mask: {interactLayerMask.value})");
         }
 
+        if(Cursor.lockState != CursorLockMode.Locked) return;
+
         // Check for gather input — using the Attack action (left mouse button)
         // since it's already bound and makes sense for "swing tool at resource"
         if (_inputActions.Player.Attack.WasPressedThisFrame())
