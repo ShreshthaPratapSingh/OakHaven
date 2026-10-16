@@ -1705,7 +1705,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &507689662
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2896,7 +2896,9 @@ MonoBehaviour:
   sun: {fileID: 410087040}
   moon: {fileID: 1481593211}
   nightVolume: {fileID: 507689662}
-  nightOnlyObjects: []
+  nightOnlyObjects:
+  - {fileID: 1418618096}
+  nightLights: []
   nightAmount:
     serializedVersion: 2
     m_Curve:
@@ -2937,10 +2939,10 @@ MonoBehaviour:
       inWeight: 0.33333334
       outWeight: 0.33333334
     - serializedVersion: 3
-      time: 0.8
+      time: 0.77
       value: 0
-      inSlope: -7.3726397
-      outSlope: -7.3726397
+      inSlope: 0
+      outSlope: 0
       tangentMode: 0
       weightedMode: 0
       inWeight: 0.33333334
@@ -2948,8 +2950,8 @@ MonoBehaviour:
     - serializedVersion: 3
       time: 1
       value: 1
-      inSlope: -7.004728
-      outSlope: -7.004728
+      inSlope: 0
+      outSlope: 0
       tangentMode: 0
       weightedMode: 0
       inWeight: 0.33333334
@@ -2971,16 +2973,16 @@ MonoBehaviour:
       outWeight: 0.33333334
     - serializedVersion: 3
       time: 0.3
-      value: 0.6
-      inSlope: 4.444445
-      outSlope: 4.444445
+      value: 0.8
+      inSlope: 6.666667
+      outSlope: 6.666667
       tangentMode: 136
       weightedMode: 0
       inWeight: 0.33333334
       outWeight: 0.33333334
     - serializedVersion: 3
       time: 0.5
-      value: 1.2
+      value: 1.8
       inSlope: 0
       outSlope: 0
       tangentMode: 136
@@ -2989,9 +2991,9 @@ MonoBehaviour:
       outWeight: 0.33333334
     - serializedVersion: 3
       time: 0.7
-      value: 0.6
-      inSlope: -4.444445
-      outSlope: -4.444445
+      value: 0.8
+      inSlope: -6.666667
+      outSlope: -6.666667
       tangentMode: 136
       weightedMode: 0
       inWeight: 0.33333334
@@ -3043,12 +3045,13 @@ MonoBehaviour:
   nightFogColor: {r: 0.31, g: 0.45, b: 0.52, a: 1}
   dayFogDensity: 0.004
   nightFogDensity: 0.025
-  dayAmbient: {r: 0.6, g: 0.66, b: 0.72, a: 1}
+  dayAmbient: {r: 0.4, g: 0.44, b: 0.48, a: 1}
   nightAmbient: {r: 0.14, g: 0.23, b: 0.29, a: 1}
   daySkyTint: {r: 0.5, g: 0.5, b: 0.5, a: 1}
   nightSkyTint: {r: 0.31, g: 0.45, b: 0.52, a: 1}
   daySkyExposure: 1.1
   nightSkyExposure: 0.35
+  moonColor: {r: 0.61, g: 0.77, b: 0.86, a: 1}
 --- !u!1001 &1224451969
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -3510,6 +3513,72 @@ PrefabInstance:
 Transform:
   m_CorrespondingSourceObject: {fileID: 2509377271011560436, guid: 8e94112ed25f3404da5f0747748b7f29, type: 3}
   m_PrefabInstance: {fileID: 1393913297}
+  m_PrefabAsset: {fileID: 0}
+--- !u!1001 &1418618095
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 0}
+    m_Modifications:
+    - target: {fileID: 4751697184947534743, guid: ea94bf10baeacb74e8a661d1b64ee647, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: 411.13483
+      objectReference: {fileID: 0}
+    - target: {fileID: 4751697184947534743, guid: ea94bf10baeacb74e8a661d1b64ee647, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 3.39259
+      objectReference: {fileID: 0}
+    - target: {fileID: 4751697184947534743, guid: ea94bf10baeacb74e8a661d1b64ee647, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 600.9953
+      objectReference: {fileID: 0}
+    - target: {fileID: 4751697184947534743, guid: ea94bf10baeacb74e8a661d1b64ee647, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 0.7071068
+      objectReference: {fileID: 0}
+    - target: {fileID: 4751697184947534743, guid: ea94bf10baeacb74e8a661d1b64ee647, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: -0.7071068
+      objectReference: {fileID: 0}
+    - target: {fileID: 4751697184947534743, guid: ea94bf10baeacb74e8a661d1b64ee647, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4751697184947534743, guid: ea94bf10baeacb74e8a661d1b64ee647, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4751697184947534743, guid: ea94bf10baeacb74e8a661d1b64ee647, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: -90
+      objectReference: {fileID: 0}
+    - target: {fileID: 4751697184947534743, guid: ea94bf10baeacb74e8a661d1b64ee647, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4751697184947534743, guid: ea94bf10baeacb74e8a661d1b64ee647, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6778848352221674628, guid: ea94bf10baeacb74e8a661d1b64ee647, type: 3}
+      propertyPath: m_Name
+      value: GroundMist
+      objectReference: {fileID: 0}
+    - target: {fileID: 6778848352221674628, guid: ea94bf10baeacb74e8a661d1b64ee647, type: 3}
+      propertyPath: m_IsActive
+      value: 1
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: ea94bf10baeacb74e8a661d1b64ee647, type: 3}
+--- !u!1 &1418618096 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 6778848352221674628, guid: ea94bf10baeacb74e8a661d1b64ee647, type: 3}
+  m_PrefabInstance: {fileID: 1418618095}
   m_PrefabAsset: {fileID: 0}
 --- !u!1001 &1472418165
 PrefabInstance:
@@ -6519,3 +6588,4 @@ SceneRoots:
   - {fileID: 507689663}
   - {fileID: 1481593212}
   - {fileID: 1129096857}
+  - {fileID: 1418618095}
