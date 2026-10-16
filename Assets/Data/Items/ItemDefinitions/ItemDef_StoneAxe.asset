@@ -18,3 +18,4 @@ MonoBehaviour:
   maxStackSize: 1
   weight: 1
   category: Tool
+  equippedPrefab: {fileID: 5839689503707523611, guid: b62448347d05c544994ebee5ac49b617, type: 3}

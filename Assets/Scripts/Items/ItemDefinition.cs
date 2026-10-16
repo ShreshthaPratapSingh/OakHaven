@@ -40,4 +40,8 @@ public class ItemDefinition : ScriptableObject
     [Header("Classification")]
     [Tooltip("Category for UI filtering/sorting (e.g. 'Resource', 'Tool', 'Consumable').")]
     public string category = "Resource";
+
+    [Header("Equippable")]
+    [Tooltip("Visual prefab attached to the hand socket when equipped. Null = not a held item.")]
+    public GameObject equippedPrefab;
 }
