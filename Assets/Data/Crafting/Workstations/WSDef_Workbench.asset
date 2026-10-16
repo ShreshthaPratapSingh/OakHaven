@@ -16,10 +16,10 @@ MonoBehaviour:
   displayName: Workbench
   repairCosts:
   - itemId: wood
-    quantity: 5
+    quantity: 1
   - itemId: stone
-    quantity: 5
+    quantity: 1
   - itemId: fiber
-    quantity: 5
+    quantity: 1
   availableRecipes:
   - {fileID: 11400000, guid: 2f36ade573884124fa98754bfae351f4, type: 2}

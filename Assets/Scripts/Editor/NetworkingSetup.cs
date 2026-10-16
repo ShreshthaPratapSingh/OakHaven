@@ -32,35 +32,55 @@ public static class NetworkingSetup
 
     private static void CreateNetworkPlayerPrefab()
     {
-        string prefabPath = "Assets/Prefabs/NetworkPlayer.prefab";
-
-        // Check if already exists — if so, rebuild it
-        GameObject existingPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+        // Resolve the prefab wherever it currently lives — the Prefabs folder
+        // is organized into subfolders and the prefab may move again.
+        GameObject existingPrefab = FindExistingPlayerPrefab();
         if (existingPrefab != null)
         {
-            Debug.Log("[NetworkingSetup] NetworkPlayer prefab already exists at: " + prefabPath +
+            Debug.Log("[NetworkingSetup] NetworkPlayer prefab already exists at: " +
+                      AssetDatabase.GetAssetPath(existingPrefab) +
                       "\nUse Tools > OakHaven > Rebuild Player Prefab to recreate it.");
             RegisterPrefabInNetworkPrefabsList(existingPrefab);
             return;
         }
 
-        BuildPlayerPrefab(prefabPath);
+        BuildPlayerPrefab("Assets/Prefabs/NetworkPlayer.prefab");
+    }
+
+    /// <summary>
+    /// Finds the NetworkPlayer prefab anywhere in the project via AssetDatabase
+    /// search instead of a hardcoded path (folders get reorganized).
+    /// </summary>
+    private static GameObject FindExistingPlayerPrefab()
+    {
+        string[] guids = AssetDatabase.FindAssets("NetworkPlayer t:Prefab");
+        if (guids.Length == 0) return null;
+
+        if (guids.Length > 1)
+        {
+            Debug.LogWarning("[NetworkingSetup] Multiple NetworkPlayer prefabs found — using the first. " +
+                             "Make sure the NetworkManager prefab list points at the one you actually use.");
+        }
+
+        return AssetDatabase.LoadAssetAtPath<GameObject>(AssetDatabase.GUIDToAssetPath(guids[0]));
     }
 
     [MenuItem("Tools/OakHaven/Rebuild Player Prefab")]
     public static void RebuildPlayerPrefab()
     {
-        string prefabPath = "Assets/Prefabs/NetworkPlayer.prefab";
+        // Rebuild IN PLACE — wherever the prefab currently lives. SaveAsPrefabAsset
+        // overwrites in place, so no delete is needed.
+        GameObject existing = FindExistingPlayerPrefab();
+        string prefabPath = existing != null
+            ? AssetDatabase.GetAssetPath(existing)
+            : "Assets/Prefabs/NetworkPlayer.prefab";
 
-        // Delete existing prefab if present
-        if (AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath) != null)
-        {
-            AssetDatabase.DeleteAsset(prefabPath);
-            Debug.Log("[NetworkingSetup] Deleted existing NetworkPlayer prefab.");
-        }
-
+        Debug.LogWarning("[NetworkingSetup] Rebuilding (REPLACING) the NetworkPlayer prefab at: " +
+                         prefabPath + " — hand-tuned children (e.g. the equipment HandSocket) are lost!");
         BuildPlayerPrefab(prefabPath);
-        Debug.Log("[NetworkingSetup] ✅ Player prefab rebuilt! Save the scene (Ctrl+S).");
+        Debug.Log("[NetworkingSetup] ✅ Player prefab rebuilt at " + prefabPath +
+                  "! Re-run Tools > OakHaven > Setup Equipment to re-add the hand socket. " +
+                  "Save the scene (Ctrl+S).");
     }
 
     private static void BuildPlayerPrefab(string prefabPath)
