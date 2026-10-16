@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "com.cqf.urpvolumetricfog": "https://github.com/CristianQiu/Unity-URP-Volumetric-Light.git",
     "com.unity.2d.sprite": "1.0.0",
     "com.unity.ai.navigation": "2.0.14",
     "com.unity.collab-proxy": "2.13.6",
@@ -8,6 +9,7 @@
     "com.unity.inputsystem": "1.20.0",
     "com.unity.netcode.gameobjects": "2.13.2",
     "com.unity.postprocessing": "3.5.4",
+    "com.unity.recorder": "5.1.7",
     "com.unity.render-pipelines.universal": "17.6.0",
     "com.unity.services.authentication": "3.3.3",
     "com.unity.services.multiplayer": "2.3.2",
