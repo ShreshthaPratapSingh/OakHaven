@@ -1,0 +1,28 @@
+fileFormatVersion: 2
+guid: b4b8947316b54ed4cad6c212041ef7f6
+TrueTypeFontImporter:
+  externalObjects: {}
+  serializedVersion: 4
+  fontSize: 16
+  forceTextureCase: -2
+  characterSpacing: 0
+  characterPadding: 1
+  includeFontData: 1
+  fontNames:
+  - Doctor Glitch
+  fallbackFontReferences: []
+  customCharacters: 
+  fontRenderingMode: 0
+  ascentCalculationMode: 1
+  useLegacyBoundsCalculation: 0
+  shouldRoundAdvanceValue: 1
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 176906
+  packageName: "Ultimate Nature \u2013 Starter"
+  packageVersion: 1.3.0
+  assetPath: "Assets/InnerverseInteractive/Ultimate Nature \u2013 Starter/Demo/Fonts/UNS_Doctor_Glitch.otf"
+  uploadId: 964150

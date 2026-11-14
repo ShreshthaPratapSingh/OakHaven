@@ -1,4 +1,5 @@
 using System.Collections;
+using Unity.Collections.Tests.CoreCLR.TestJobs;
 using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -21,8 +22,6 @@ public class PlayerController : NetworkBehaviour
     [SerializeField] private float jumpHeight = 1.2f;
     [SerializeField] private float gravity = -15f;
     [SerializeField] private float turnSmoothTime = 0.1f;
-    [SerializeField] private float acceleration = 8f;
-    [SerializeField] private float deceleration = 8f;
 
     [Header("Camera")]
     [SerializeField] private float mouseSensitivity = 2f;
@@ -62,6 +61,7 @@ public class PlayerController : NetworkBehaviour
     private float _currentSpeed;
     private Vector3 _lastMoveDir;
     private Quaternion _cachedModelRotation;
+    private bool _wasAirborne;
 
     // ───────────────────────── Network Lifecycle ─────────────────────────
 
@@ -130,7 +130,7 @@ public class PlayerController : NetworkBehaviour
         // If spawn position is STILL near origin, something went wrong — use a safe default
         if (targetPos.sqrMagnitude < 1f)
         {
-            targetPos = new Vector3(625.08f, 5f, 436.94f);
+            targetPos = new Vector3(63.08f, 0.58f, 128.73f);   // keep in sync with RelayManager.spawnPosition (RefactoredArt level)
             Debug.LogWarning("[PlayerController] Spawn position was at origin, using fallback position.");
         }
 
@@ -240,6 +240,16 @@ public class PlayerController : NetworkBehaviour
         // Ground check
         
         bool isGrounded = _cc.isGrounded;
+
+        if (!isGrounded)
+        {
+            _wasAirborne = true;
+        }
+        else if (_wasAirborne)
+        {
+            _wasAirborne = false;
+            if(_animator != null) _animator.SetTrigger("Land");
+        }
         if (isGrounded && _velocity.y < 0f)
         {
             _velocity.y = -2f; // Small downward force to keep grounded
@@ -263,8 +273,9 @@ public class PlayerController : NetworkBehaviour
             _lastMoveDir = moveDir;
         }
         float targetSpeed = moveDir.sqrMagnitude > 0.01f ? (isSprinting ? sprintSpeed : walkSpeed) : 0f;
-        float acelRate = _currentSpeed < targetSpeed ? acceleration : deceleration;
-        _currentSpeed = Mathf.MoveTowards(_currentSpeed, targetSpeed, acelRate * Time.deltaTime);
+
+        _currentSpeed = targetSpeed;
+
         _cc.Move(_lastMoveDir * _currentSpeed * Time.deltaTime);
         if (_animator != null)
         {
