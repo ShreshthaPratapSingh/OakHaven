@@ -2,8 +2,10 @@
 node_modules/
 
 # Build output
-dist/
-dist-ssr/
+# NOTE: dist/ is intentionally not ignored. If you prefer to keep build output
+# out of version control, uncomment the next two lines.
+# dist/
+# dist-ssr/
 *.local
 
 # Environment files
