@@ -80,7 +80,7 @@ MonoBehaviour:
     m_Value: 0
   density:
     m_OverrideState: 1
-    m_Value: 0.05
+    m_Value: 0.25
   attenuationDistance:
     m_OverrideState: 1
     m_Value: 128

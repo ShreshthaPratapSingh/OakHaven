@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: bff6dc88bbfda014fbf2e9437dd3151e
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 36300000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 176906
+  packageName: "Ultimate Nature \u2013 Starter"
+  packageVersion: 1.3.0
+  assetPath: "Assets/InnerverseInteractive/Ultimate Nature \u2013 Starter/Demo/Scenes/Forest/UNS_Forest_Occlusion_Culling_Data.asset"
+  uploadId: 964150

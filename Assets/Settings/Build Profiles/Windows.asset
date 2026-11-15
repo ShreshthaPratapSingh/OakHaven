@@ -23,7 +23,10 @@ MonoBehaviour:
   m_OverrideGlobalSceneList: 1
   m_Scenes:
   - m_enabled: 1
-    m_path: Assets/Scenes/SampleScene.unity
+    m_path: Assets/_Game/Scenes/Refactored/RefactoredArt.unity
+    m_guid: a04deef99c11e47469e10cec9ba1b651
+  - m_enabled: 0
+    m_path: Assets/Scenes/DayTIme.unity
     m_guid: 99c9720ab356a0642a771bea13969a05
   m_HasScriptingDefines: 1
   m_ScriptingDefines: []

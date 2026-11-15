@@ -2,6 +2,12 @@ using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.Rendering;
 
+/// <summary>
+/// Single authoritative day/night cycle. The server owns the clock (in hours, 0..24) and
+/// replicates it roughly once per second; every client derives all purely visual state
+/// (sun/moon rotation, light intensity, skybox, fog, ambient, night volume) locally from
+/// the synchronized time, so no extra network traffic is needed for visuals.
+/// </summary>
 public class DayNightCycle : NetworkBehaviour
 {
     [Header("Time")]
@@ -12,12 +18,35 @@ public class DayNightCycle : NetworkBehaviour
     [SerializeField] private Light sun;
     [SerializeField] private Light moon;
     [SerializeField] private Volume nightVolume;
-    [SerializeField] private GameObject[] nightOnlyObjects;  // diner signs etc. (toggled mid-transition)
-    [SerializeField] private Light[] nightLights;            // diner lights etc. (faded with the night amount)
+    [SerializeField] private GameObject[] nightOnlyObjects;  // diner lights etc.
+    [Tooltip("Stylized procedural skybox material driven by this cycle. Falls back to the scene skybox if unassigned.")]
+    [SerializeField] private Material skyboxMaterial;
+
+    [Header("Sun movement")]
+    [Tooltip("Hour (0..24) at which the sun crosses the horizon in the east.")]
+    [SerializeField, Range(0, 24)] private float sunriseHour = 6f;
+    [Tooltip("Hour (0..24) at which the sun crosses the horizon in the west.")]
+    [SerializeField, Range(0, 24)] private float sunsetHour = 18.5f;
+    [Tooltip("Compass heading of the sun at solar noon: 0 = north (+Z), 90 = east (+X), 180 = south.")]
+    [SerializeField, Range(0, 360)] private float sunAzimuth = 180f;
+    [Tooltip("Sun elevation at solar noon, in degrees.")]
+    [SerializeField, Range(15, 89)] private float sunMaxElevation = 62f;
+    [Tooltip("Deepest sun elevation below the horizon at midnight, in degrees.")]
+    [SerializeField, Range(5, 89)] private float sunNightDip = 35f;
 
     [Header("Curves (x = time of day 0..1)")]
     [SerializeField] private AnimationCurve nightAmount;     // 0 = day, 1 = night
-    [SerializeField] private AnimationCurve sunIntensity;
+    [SerializeField] private AnimationCurve sunIntensity;    // direct sunlight intensity (peak = maximum sunlight)
+    [Tooltip("Scales the sun intensity curve - quick inspector knob for maximum sunlight strength.")]
+    [SerializeField, Range(0, 5)] private float sunIntensityMultiplier = 1f;
+    [Tooltip("Sun shadow strength across the day (0 = faint shadows, 1 = solid shadows).")]
+    [SerializeField] private AnimationCurve sunShadowStrength = new AnimationCurve(
+        new Keyframe(0.22f, 0.30f),
+        new Keyframe(0.35f, 0.65f),
+        new Keyframe(0.50f, 0.85f),
+        new Keyframe(0.65f, 0.65f),
+        new Keyframe(0.78f, 0.30f));
+    [Tooltip("Sunlight colour across the day: warm at sunrise, white at midday, warm again at sunset.")]
     [SerializeField] private Gradient sunColor;
     [SerializeField] private float moonMaxIntensity = 0.9f;
 
@@ -28,180 +57,165 @@ public class DayNightCycle : NetworkBehaviour
     [SerializeField] private float nightFogDensity = 0.025f;
     [SerializeField] private Color dayAmbient = new Color(0.6f, 0.66f, 0.72f);
     [SerializeField] private Color nightAmbient = new Color(0.14f, 0.23f, 0.29f);
-    [SerializeField] private Color daySkyTint = new Color(0.5f, 0.5f, 0.5f);
-    [SerializeField] private Color nightSkyTint = new Color(0.31f, 0.45f, 0.52f);
     [SerializeField] private float daySkyExposure = 1.1f;
     [SerializeField] private float nightSkyExposure = 0.35f;
 
-    [SerializeField] private Color moonColor = new Color(0.61f, 0.77f, 0.86f);
-
-    // RenderSettings.sun is swapped only while both lights sit at ~zero
-    // intensity (very start/end of the dusk & dawn ramps) so the swap is
-    // invisible instead of a one-frame pop.
-    private const float MainLightSwapThreshold = 0.05f;
-    // Server clock corrections smaller than this (hours) are absorbed
-    // smoothly; bigger ones (fresh join / big desync) snap once.
-    private const float HardSyncThreshold = 1f;
-    // Fraction of a pending clock correction absorbed per second.
-    private const float CorrectionRate = 3f;
+    [Header("Skybox extras")]
+    [Tooltip("Skybox sun disk brightness relative to the current sunlight colour (HDR value, feeds bloom).")]
+    [SerializeField, Range(0, 8)] private float sunDiskBrightness = 2.2f;
+    [Tooltip("Skybox moon disk brightness, faded in with the night curve.")]
+    [SerializeField, Range(0, 2)] private float moonDiskBrightness = 0.9f;
+    [SerializeField, Range(0, 1)] private float starIntensity = 1f;
+    [SerializeField, Range(0, 1)] private float cloudAmount = 0.35f;
 
     private readonly NetworkVariable<float> _serverHour = new NetworkVariable<float>();
     private float _hour;
-    private float _hourCorrection;
     private float _syncTimer;
     private Material _sky;
-    private float[] _nightLightBase;
+    private bool _hasSkyControls;   // cloned material actually exposes our runtime uniforms
     private bool _wasNight;
-    private bool _moonPhase;
+    private readonly Vector4 _sunDirVec = new Vector4(0f, 1f, 0f, 0f);
+    private readonly Vector4 _moonDirVec = new Vector4(0f, 1f, 0f, 0f);
+
+    private static readonly int SunDirectionId = Shader.PropertyToID("_SunDirection");
+    private static readonly int SunDiskColorId = Shader.PropertyToID("_SunDiskColor");
+    private static readonly int MoonDirectionId = Shader.PropertyToID("_MoonDirection");
+    private static readonly int MoonIntensityId = Shader.PropertyToID("_MoonIntensity");
+    private static readonly int StarIntensityId = Shader.PropertyToID("_StarIntensity");
+    private static readonly int CloudAmountId = Shader.PropertyToID("_CloudAmount");
+    private static readonly int ExposureId = Shader.PropertyToID("_Exposure");
 
     public float Hour => _hour;
     public bool IsNight { get; private set; }
 
-    private void Awake()
+    public void Awake()
     {
-        // Clone the skybox so we never edit the shared asset. Done in Awake so
-        // lighting keeps working even if networking never spawns us (e.g. a
-        // relay sign-in failure) - Update can then never null-ref on _sky.
-        if (RenderSettings.skybox != null)
+        // Clone the skybox so we never edit the shared asset.
+        _hour = startHour;
+        Material source = skyboxMaterial != null ? skyboxMaterial : RenderSettings.skybox;
+        if (source != null)
         {
-            _sky = new Material(RenderSettings.skybox);
+            _sky = new Material(source);
             RenderSettings.skybox = _sky;
+            _hasSkyControls = _sky.HasProperty(SunDirectionId);
+            if (_hasSkyControls) _sky.SetFloat(CloudAmountId, cloudAmount);
         }
-        RenderSettings.ambientMode = AmbientMode.Flat;
 
-        int lightCount = nightLights != null ? nightLights.Length : 0;
-        _nightLightBase = new float[lightCount];
-        for (int i = 0; i < lightCount; i++)
-            _nightLightBase[i] = nightLights[i] != null ? nightLights[i].intensity : 0f;
+        // The sun colour gradient is the single source of truth for the light colour;
+        // the scene light's colour-temperature filter would otherwise tint it.
+        if (sun != null) sun.useColorTemperature = false;
+
+        RenderSettings.ambientMode = AmbientMode.Flat;    
     }
 
     public override void OnNetworkSpawn()
     {
-        if (IsServer)
-        {
-            _hour = startHour;
-            _serverHour.Value = _hour;
-        }
-        else
-        {
-            // 0 = the variable has not synced yet; better to sit on the start
-            // hour than flash midnight for the first second.
-            if (_serverHour.Value > 0f) _hour = _serverHour.Value;
-            _serverHour.OnValueChanged += OnServerHourChanged;
-        }
-    }
 
-    public override void OnNetworkDespawn()
-    {
-        _serverHour.OnValueChanged -= OnServerHourChanged;
-    }
-
-    private void OnServerHourChanged(float _, float serverHour)
-    {
-        if (IsServer) return;
-
-        // Shortest path around the 24h wrap.
-        float diff = serverHour - _hour;
-        if (diff > 12f) diff -= 24f;
-        else if (diff < -12f) diff += 24f;
-
-        if (Mathf.Abs(diff) > HardSyncThreshold)
-        {
-            // Fresh join or real desync: snap once, it is invisible at spawn.
-            _hour = serverHour;
-            _hourCorrection = 0f;
-        }
-        else
-        {
-            // Normal drift: absorb the correction smoothly over the next
-            // ~third of a second instead of yanking the lighting back.
-            _hourCorrection = diff;
-        }
+        if (IsServer) { _hour = startHour; _serverHour.Value = _hour; }
+        else { _hour = _serverHour.Value; _serverHour.OnValueChanged += (_, v) => _hour = v; }
     }
 
     private void Update()
     {
-        float advance = 24f * Time.deltaTime / dayLengthSeconds;
-        float absorb = _hourCorrection * Mathf.Clamp01(Time.deltaTime * CorrectionRate);
-        _hourCorrection -= absorb;
-        _hour = Mathf.Repeat(_hour + advance + absorb, 24f);
+        _hour = (_hour + 24f * Time.deltaTime / dayLengthSeconds) % 24f;
 
         if (IsServer)
         {
             _syncTimer += Time.deltaTime;
-            if (_syncTimer >= 1f)
-            {
-                _syncTimer = 0f;
-                _serverHour.Value = _hour;
-            }
+            if (_syncTimer >= 1f) { _syncTimer = 0f; _serverHour.Value = _hour; }
         }
         Apply();
     }
 
     private void Apply()
     {
-        if (_sky == null) return;
-
         float t = _hour / 24f;
-        // The curve tangents are authored data; clamp so a rogue key can never
-        // push fog/ambient/sky Lerps into extrapolation territory again.
-        float night = Mathf.Clamp01(nightAmount.Evaluate(t));
+        float night = nightAmount.Evaluate(t);
 
-        if (sun != null)
-        {
-            sun.transform.rotation = Quaternion.Euler(t * 360f - 90f, 30f, 0f);
-            sun.color = sunColor.Evaluate(t);
-            sun.intensity = sunIntensity.Evaluate(t);
-        }
+        // --- Sun movement (continuous across the whole 24h, no jump at midnight) ---
+        Vector3 sunDir = ComputeSunDirection(_hour);
+        sun.transform.rotation = Quaternion.LookRotation(-sunDir);   // light rays travel away from the sun disk
 
-        if (moon != null)
-        {
-            moon.color = moonColor;
-            moon.intensity = night * moonMaxIntensity;
-        }
+        // --- Direct sunlight ---
+        Color lightColor = sunColor.Evaluate(t);
+        sun.color = lightColor;
+        sun.intensity = sunIntensity.Evaluate(t) * sunIntensityMultiplier;
+        sun.shadowStrength = Mathf.Clamp01(sunShadowStrength.Evaluate(t));
+        moon.intensity = night * moonMaxIntensity;
 
-        if (nightVolume != null) nightVolume.weight = night;
+        nightVolume.weight = night;
 
         RenderSettings.fogColor = Color.Lerp(dayFogColor, nightFogColor, night);
         RenderSettings.fogDensity = Mathf.Lerp(dayFogDensity, nightFogDensity, night);
         RenderSettings.ambientLight = Color.Lerp(dayAmbient, nightAmbient, night);
 
-        _sky.SetColor("_Tint", Color.Lerp(daySkyTint, nightSkyTint, night));
-        _sky.SetFloat("_Exposure", Mathf.Lerp(daySkyExposure, nightSkyExposure, night));
-
-        // Diner lights fade in/out with the night amount instead of popping on.
-        if (nightLights != null)
+        // --- Procedural skybox ---
+        if (_sky != null && _hasSkyControls)
         {
-            for (int i = 0; i < nightLights.Length; i++)
+            // The sun disk always follows the actual Sun directional light.
+            _sunDirVec.Set(sunDir.x, sunDir.y, sunDir.z, 0f);
+            _sky.SetVector(SunDirectionId, _sunDirVec);
+            _sky.SetColor(SunDiskColorId, lightColor * sunDiskBrightness);
+
+            // Moon disk follows the existing Moon light (it points at the ground).
+            if (moon != null)
             {
-                if (nightLights[i] != null)
-                    nightLights[i].intensity = _nightLightBase[i] * night;
+                Vector3 moonDir = -moon.transform.forward;
+                _moonDirVec.Set(moonDir.x, moonDir.y, moonDir.z, 0f);
+                _sky.SetVector(MoonDirectionId, _moonDirVec);
             }
+            _sky.SetFloat(MoonIntensityId, night * moonDiskBrightness);
+            _sky.SetFloat(StarIntensityId, starIntensity * night);
+            _sky.SetFloat(ExposureId, Mathf.Lerp(daySkyExposure, nightSkyExposure, night));
         }
 
         IsNight = night > 0.5f;
-
-        // Swap the shadow-driving light only while both lights are at ~zero
-        // intensity (start/end of the dusk/dawn ramps) so it never pops.
-        bool moonPhase = night > MainLightSwapThreshold;
-        if (moonPhase != _moonPhase)
-        {
-            _moonPhase = moonPhase;
-            if (sun != null && moon != null)
-                RenderSettings.sun = moonPhase ? moon : sun;
-        }
-
         if (IsNight != _wasNight)
         {
             _wasNight = IsNight;
-            if (nightOnlyObjects != null)
-            {
-                for (int i = 0; i < nightOnlyObjects.Length; i++)
-                {
-                    if (nightOnlyObjects[i] != null)
-                        nightOnlyObjects[i].SetActive(IsNight);
-                }
-            }
+            RenderSettings.sun = IsNight ? moon : sun;   // the main light casts shadows and drives the volumetric fog
+            foreach (var go in nightOnlyObjects) go.SetActive(IsNight);
         }
+    }
+
+    /// <summary>
+    /// Sun direction (unit vector pointing at the sun in the sky) for the given hour.
+    /// The sun rises at sunriseHour on heading (sunAzimuth - 90), peaks at sunMaxElevation
+    /// at solar noon, sets at sunsetHour on heading (sunAzimuth + 90) and dips sunNightDip
+    /// degrees below the horizon at midnight. All transitions are continuous, including the
+    /// 23:59 -> 00:00 wrap.
+    /// </summary>
+    private Vector3 ComputeSunDirection(float hour)
+    {
+        float daySpan = Mathf.Repeat(sunsetHour - sunriseHour, 24f);
+        if (daySpan < 0.01f) daySpan = 12f;
+        float nightSpan = 24f - daySpan;
+
+        // Hours elapsed since the most recent sunrise; wraps continuously at the next sunrise.
+        float sinceSunrise = Mathf.Repeat(hour - sunriseHour, 24f);
+
+        float elevation;
+        float heading;
+        if (sinceSunrise < daySpan)
+        {
+            // Daytime: sine bump from the horizon up to sunMaxElevation and back down.
+            float dayT = sinceSunrise / daySpan;                     // 0 at sunrise, 1 at sunset
+            elevation = Mathf.Sin(Mathf.PI * dayT) * sunMaxElevation;
+            heading = sunAzimuth - 90f + 180f * dayT;                // east -> west
+        }
+        else
+        {
+            // Night: sun travels on below the horizon.
+            float nightT = (sinceSunrise - daySpan) / nightSpan;    // 0 at sunset, 1 at next sunrise
+            elevation = -Mathf.Sin(Mathf.PI * nightT) * sunNightDip;
+            heading = sunAzimuth + 90f + 180f * nightT;             // continues west -> east
+        }
+
+        float elevRad = elevation * Mathf.Deg2Rad;
+        float headRad = heading * Mathf.Deg2Rad;
+        return new Vector3(
+            Mathf.Sin(headRad) * Mathf.Cos(elevRad),
+            Mathf.Sin(elevRad),
+            Mathf.Cos(headRad) * Mathf.Cos(elevRad));
     }
 }
