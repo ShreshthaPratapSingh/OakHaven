@@ -60,3 +60,14 @@ export const gameplayMechanics: GameplayMechanic[] = [
       'Players can improve their own capabilities and contribute to team-wide upgrades. Balancing personal growth with group benefits is part of the long-term strategy.',
   },
 ];
+
+export interface GameplayVideo {
+  src: string;
+  poster?: string;
+  caption?: string;
+}
+
+export const gameplayVideo: GameplayVideo = {
+  src: '/assets/gameplay/gameplay-overview.mp4',
+  caption: 'OakHaven gameplay overview — exploration, scavenging, and co-op survival in the village.',
+};

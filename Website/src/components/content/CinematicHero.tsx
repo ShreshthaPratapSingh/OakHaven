@@ -18,11 +18,30 @@ export function CinematicHero({ content }: CinematicHeroProps) {
       className="relative flex min-h-screen items-center justify-center overflow-hidden"
     >
       <div className="absolute inset-0">
-        <PlaceholderImage
-          label="Hero artwork — awaiting approved asset"
-          aspectRatio="wide"
-          className="h-full w-full"
-        />
+        {content.backgroundVideo ? (
+          <video
+            src={content.backgroundVideo}
+            autoPlay
+            loop
+            muted
+            playsInline
+            className="h-full w-full object-cover"
+          />
+        ) : content.backgroundImage ? (
+          <img
+            src={content.backgroundImage}
+            alt={content.title}
+            className="h-full w-full object-cover"
+            loading="eager"
+            decoding="async"
+          />
+        ) : (
+          <PlaceholderImage
+            label="Hero artwork — awaiting approved asset"
+            aspectRatio="wide"
+            className="h-full w-full"
+          />
+        )}
         <div className="absolute inset-0 bg-gradient-to-t from-pine-900 via-pine-900/60 to-pine-900/30" />
       </div>
 

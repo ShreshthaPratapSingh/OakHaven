@@ -1,6 +1,7 @@
 import { PageIntro } from '@/components/content/PageIntro';
 import { ContentSection } from '@/components/content/ContentSection';
 import { FadeIn } from '@/components/content/FadeIn';
+import { ResponsiveImage } from '@/components/media/ResponsiveImage';
 import { PlaceholderImage } from '@/components/media/PlaceholderImage';
 import {
   charactersOverview,
@@ -34,11 +35,20 @@ export function CharactersPage() {
             </FadeIn>
 
             <FadeIn delay={150}>
-              <PlaceholderImage
-                label="Character artwork — awaiting approved asset"
-                aspectRatio="video"
-                className="rounded-sm shadow-2xl"
-              />
+              {charactersPublicInfo.imageSrc ? (
+                <ResponsiveImage
+                  src={charactersPublicInfo.imageSrc}
+                  alt={charactersPublicInfo.imageAlt}
+                  aspectRatio="video"
+                  className="rounded-sm shadow-2xl"
+                />
+              ) : (
+                <PlaceholderImage
+                  label="Character artwork — awaiting approved asset"
+                  aspectRatio="video"
+                  className="rounded-sm shadow-2xl"
+                />
+              )}
             </FadeIn>
           </div>
         </div>

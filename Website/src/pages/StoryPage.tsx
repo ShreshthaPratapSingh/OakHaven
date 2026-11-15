@@ -22,6 +22,7 @@ export function StoryPage() {
                 description={entry.description}
                 imageLabel={entry.imageLabel}
                 imageAlt={entry.imageAlt}
+                src={entry.src}
                 reversed={index % 2 === 1}
               />
             ))}

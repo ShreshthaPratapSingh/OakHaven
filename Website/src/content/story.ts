@@ -4,6 +4,7 @@ export interface StoryEntry {
   description: string;
   imageLabel: string;
   imageAlt: string;
+  src?: string;
 }
 
 export const storyOverview = {
@@ -20,6 +21,7 @@ export const storyEntries: StoryEntry[] = [
       'OakHaven begins with a group of friends cut off from the outside world. To escape, they must survive long enough to learn the rules of the place and confront whatever keeps them there.',
     imageLabel: 'Story scene — awaiting approved asset',
     imageAlt: 'A scene from OakHaven establishing the trapped village.',
+    src: '/assets/environments/story-premise.webp',
   },
   {
     id: 'the-investigation',
@@ -28,6 +30,7 @@ export const storyEntries: StoryEntry[] = [
       'Clues are scattered throughout the village and its surroundings. Notes, objects, and environmental details hint at the truth behind the trap. Players must pay attention and piece together fragments to make progress.',
     imageLabel: 'Investigation scene — awaiting approved asset',
     imageAlt: 'A clue or investigation moment in OakHaven.',
+    src: '/assets/gameplay/story-investigation.webp',
   },
   {
     id: 'the-threat',
@@ -36,6 +39,7 @@ export const storyEntries: StoryEntry[] = [
       'Something controls the village. It watches, it waits, and it turns the environment itself against the group. Understanding its nature is the only path to freedom.',
     imageLabel: 'Threat scene — awaiting approved asset',
     imageAlt: 'An atmospheric scene hinting at the force within OakHaven.',
+    src: '/assets/environments/story-threat.webp',
   },
 ];
 
