@@ -8,4 +8,5 @@ export const gameIntroduction: GameIntroductionContent = {
     'More details about story, characters, and environments will be shared as development continues.',
   ],
   imageAlt: 'Gameplay scene from OakHaven showing the environment.',
+  imageSrc: '/assets/gameplay/gameplay-intro.webp',
 };

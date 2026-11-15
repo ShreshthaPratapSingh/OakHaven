@@ -12,6 +12,8 @@ export interface SiteMetadata {
 export interface HeroContent {
   title: string;
   subtitle: string;
+  backgroundImage?: string;
+  backgroundVideo?: string;
   primaryCta: {
     label: string;
     href: string;
@@ -26,6 +28,7 @@ export interface GameIntroductionContent {
   heading: string;
   paragraphs: string[];
   imageAlt: string;
+  imageSrc?: string;
 }
 
 export interface MediaItem {

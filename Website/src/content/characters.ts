@@ -19,6 +19,8 @@ export const charactersPublicInfo = {
     'The survivors of OakHaven must rely on each other to gather resources, secure shelter, and understand the force that holds them in the village.',
   abilities:
     'Every character has access to shared survival abilities and one unique ability that sets them apart. Ability details will be revealed as development continues.',
+  imageSrc: '/assets/characters/characters-group.webp',
+  imageAlt: 'The group of survivor friends in OakHaven',
 };
 
 export const characterEntries: CharacterEntry[] = [

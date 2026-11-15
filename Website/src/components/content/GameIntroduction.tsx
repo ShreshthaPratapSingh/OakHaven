@@ -1,4 +1,5 @@
 import { ContentSection } from './ContentSection';
+import { ResponsiveImage } from '@/components/media/ResponsiveImage';
 import { PlaceholderImage } from '@/components/media/PlaceholderImage';
 import type { GameIntroductionContent } from '@/types';
 
@@ -28,11 +29,20 @@ export function GameIntroduction({ content }: GameIntroductionProps) {
           </div>
 
           <div className="order-first lg:order-last">
-            <PlaceholderImage
-              label="Gameplay screenshot — awaiting approved asset"
-              aspectRatio="video"
-              className="rounded-sm shadow-2xl"
-            />
+            {content.imageSrc ? (
+              <ResponsiveImage
+                src={content.imageSrc}
+                alt={content.imageAlt}
+                aspectRatio="video"
+                className="rounded-sm shadow-2xl"
+              />
+            ) : (
+              <PlaceholderImage
+                label="Gameplay screenshot — awaiting approved asset"
+                aspectRatio="video"
+                className="rounded-sm shadow-2xl"
+              />
+            )}
           </div>
         </div>
       </div>

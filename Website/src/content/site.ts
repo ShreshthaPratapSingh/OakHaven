@@ -20,6 +20,7 @@ export const navLinks: NavLink[] = [
 export const heroContent: HeroContent = {
   title: 'OakHaven',
   subtitle: 'A co-op survival horror experience.',
+  backgroundImage: '/assets/hero/hero-bg.webp',
   primaryCta: {
     label: 'Explore the Game',
     href: '/game',

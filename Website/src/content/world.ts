@@ -6,6 +6,7 @@ export interface EnvironmentEntry {
   description: string;
   imageLabel: string;
   imageAlt: string;
+  src?: string;
 }
 
 export const worldOverview = {
@@ -22,6 +23,7 @@ export const environmentEntries: EnvironmentEntry[] = [
       'OakHaven takes place in a village with no easy way out. Players must explore carefully, scavenge what they need, and learn the rhythm of the place before night falls.',
     imageLabel: 'Village environment — awaiting approved asset',
     imageAlt: 'A wide view of the village environment in OakHaven.',
+    src: '/assets/environments/the-village.webp',
   },
   {
     id: 'day-and-night',
@@ -30,6 +32,7 @@ export const environmentEntries: EnvironmentEntry[] = [
       'The village changes after dark. Day is the safer time to scavenge and plan; night brings greater danger, but also the chance for greater rewards for those willing to risk it.',
     imageLabel: 'Day and night cycle — awaiting approved asset',
     imageAlt: 'The village transitioning between day and night.',
+    src: '/assets/environments/day-night.webp',
   },
   {
     id: 'shelter',
@@ -38,6 +41,7 @@ export const environmentEntries: EnvironmentEntry[] = [
       'Closed buildings can become refuges when a talisman is hung inside. Talismans require maintenance and resources to stay effective, making shelter management a constant concern.',
     imageLabel: 'Shelter interior — awaiting approved asset',
     imageAlt: 'A secured building interior used as shelter.',
+    src: '/assets/environments/shelter.webp',
   },
   {
     id: 'scavenging',
@@ -46,6 +50,7 @@ export const environmentEntries: EnvironmentEntry[] = [
       'Resources, clues, and valuable items are scattered throughout the area. Players must decide how far to explore, how much to carry, and when to return before the environment turns hostile.',
     imageLabel: 'Scavenging environment — awaiting approved asset',
     imageAlt: 'A scavenging location within the village.',
+    src: '/assets/environments/scavenging.webp',
   },
   {
     id: 'corruption',
@@ -54,6 +59,7 @@ export const environmentEntries: EnvironmentEntry[] = [
       'As the nights pass, a corruption spreads through the village. The longer the group survives, the more oppressive the world becomes.',
     imageLabel: 'Corrupted environment — awaiting approved asset',
     imageAlt: 'A corrupted area of the village.',
+    src: '/assets/environments/corruption.webp',
   },
 ];
 

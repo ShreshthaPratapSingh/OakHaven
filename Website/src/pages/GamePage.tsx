@@ -1,7 +1,13 @@
 import { PageIntro } from '@/components/content/PageIntro';
 import { ContentSection } from '@/components/content/ContentSection';
+import { ResponsiveImage } from '@/components/media/ResponsiveImage';
 import { PlaceholderImage } from '@/components/media/PlaceholderImage';
 import { gameIntroduction } from '@/content/game';
+
+const gameplayActionImage = {
+  src: '/assets/gameplay/gameplay-action.webp',
+  alt: 'Gameplay action capture showing exploration in OakHaven',
+};
 
 export function GamePage() {
   return (
@@ -36,11 +42,20 @@ export function GamePage() {
             available.
           </p>
           <div className="mt-10">
-            <PlaceholderImage
-              label="Gameplay capture — awaiting approved asset"
-              aspectRatio="video"
-              className="rounded-sm shadow-2xl"
-            />
+            {gameplayActionImage.src ? (
+              <ResponsiveImage
+                src={gameplayActionImage.src}
+                alt={gameplayActionImage.alt}
+                aspectRatio="video"
+                className="rounded-sm shadow-2xl"
+              />
+            ) : (
+              <PlaceholderImage
+                label="Gameplay capture — awaiting approved asset"
+                aspectRatio="video"
+                className="rounded-sm shadow-2xl"
+              />
+            )}
           </div>
         </div>
       </ContentSection>
