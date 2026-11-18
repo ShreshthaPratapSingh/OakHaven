@@ -206,6 +206,15 @@ public class RelayManager : MonoBehaviour
 
     // ───────────────────────── Helpers ─────────────────────────
 
+    private void OnApplicationQuit()
+    {
+        if (NetworkManager.Singleton != null &&
+            (NetworkManager.Singleton.IsHost || NetworkManager.Singleton.IsClient))
+        {
+            NetworkManager.Singleton.Shutdown();
+        }
+    }
+
     private void SetStatus(string message)
     {
         if (statusText != null)

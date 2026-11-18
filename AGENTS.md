@@ -27,6 +27,7 @@ Unity 6.6 project (`6000.6.0f1`), URP. First-person→third-person networked sur
 ## Editor automation
 - `Tools > OakHaven > Setup Networking` creates/configures `NetworkManager`, `UnityTransport`, `NetworkPlayer.prefab`, relay UI, and registers the player prefab. `Rebuild Player Prefab` recreates it. Idempotent.
 - `Tools > Combine Selected Grass Mesh` (`Assets/Editor/GrassMeshCombiner.cs`) merges the selected GameObject's child MeshFilters into one baked mesh.
+- `Tools > OakHaven > Fill Detail by Terrain Layer` (`Assets/Editor/TerrainDetailLayerPainter.cs`) fills a selected terrain detail prototype based on a Terrain Layer's alphamap weight. Useful for aligning grass/foliage with specific terrain layers. Supports Undo.
 - Networking requires the project linked to UGS and Relay enabled in the Unity Dashboard; without it Relay sign-in fails at runtime.
 
 ## Conventions
