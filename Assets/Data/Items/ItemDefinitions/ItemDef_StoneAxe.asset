@@ -18,4 +18,5 @@ MonoBehaviour:
   maxStackSize: 1
   weight: 1
   category: Tool
+  toolTag: Axe
   equippedPrefab: {fileID: 8914042903712340855, guid: 80cdfbd3adab7354c8b1e13afe0113a7, type: 3}

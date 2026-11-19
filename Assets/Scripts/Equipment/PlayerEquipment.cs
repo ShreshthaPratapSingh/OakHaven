@@ -64,6 +64,9 @@ public class PlayerEquipment : NetworkBehaviour
     /// <summary>Child Animator used to set equipment pose parameters.</summary>
     private Animator _animator;
 
+    /// <summary>Cached PlayerGathering so equipment changes can update the tool tag.</summary>
+    private PlayerGathering _gathering;
+
     // ───────────────────────── Public Accessors ─────────────────────────
 
     /// <summary>Currently equipped item id, or "" if nothing is held. Runs on ANY peer.</summary>
@@ -80,6 +83,7 @@ public class PlayerEquipment : NetworkBehaviour
 
         _equipment = GetComponent<Inventory>();
         _animator = GetComponentInChildren<Animator>();
+        _gathering = GetComponent<PlayerGathering>();
 
         // Visuals are EVERYONE's business (other players must see the axe),
         // so the subscription is not gated behind IsOwner.
@@ -192,6 +196,7 @@ public class PlayerEquipment : NetworkBehaviour
         }
 
         _equippedItemId.Value = new FixedString32Bytes(itemId);
+        SyncGatheringToolTag(itemId);
         Debug.Log($"[Equipment] Client {OwnerClientId} equipped '{itemId}'.");
     }
 
@@ -207,7 +212,27 @@ public class PlayerEquipment : NetworkBehaviour
         }
 
         _equippedItemId.Value = default;
+        SyncGatheringToolTag("");
         Debug.Log($"[Equipment] Client {OwnerClientId} unequipped.");
+    }
+
+    /// <summary>
+    /// Maps the equipped item to PlayerGathering's tool tag on the server.
+    /// Keeps the legacy tool-tag validation in sync with the real equipment state.
+    /// </summary>
+    private void SyncGatheringToolTag(string itemId)
+    {
+        if (_gathering == null) return;
+
+        string toolTag = "";
+        if (!string.IsNullOrEmpty(itemId))
+        {
+            ItemDefinition def = ItemDatabase.GetItem(itemId);
+            if (def != null && !string.IsNullOrEmpty(def.toolTag))
+                toolTag = def.toolTag;
+        }
+
+        _gathering.EquippedToolTag.Value = new FixedString32Bytes(toolTag);
     }
 
     // ───────────────────────── Visuals (Every Peer) ─────────────────────────
@@ -234,14 +259,21 @@ public class PlayerEquipment : NetworkBehaviour
 
         string id = _equippedItemId.Value.ToString();
 
+        bool axeEquipped = false;
+        ItemDefinition def = null;
+        if (!string.IsNullOrEmpty(id))
+        {
+            def = ItemDatabase.GetItem(id);
+            axeEquipped = def != null && def.toolTag == "Axe";
+        }
+
         if (_animator != null)
         {
-            _animator.SetBool("AxeEquipped", id == "stone_axe");
+            _animator.SetBool("AxeEquipped", axeEquipped);
         }
 
         if (string.IsNullOrEmpty(id)) return;   // nothing equipped
 
-        ItemDefinition def = ItemDatabase.GetItem(id);
         if (def == null || def.equippedPrefab == null)
         {
             Debug.LogWarning($"[Equipment] No equippedPrefab for '{id}' — " +

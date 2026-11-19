@@ -180,7 +180,7 @@ public class PlayerController : NetworkBehaviour
 
     private void LateUpdate()
     {
-        if (_gathering != null && _gathering.IsPunching && playerModel != null)
+        if (_gathering != null && _gathering.IsAttacking && playerModel != null)
         {
             playerModel.rotation = _cachedModelRotation;
         }
@@ -240,6 +240,12 @@ public class PlayerController : NetworkBehaviour
         bool isUiOpen = Cursor.lockState != CursorLockMode.Locked;
         Vector2 moveInput = isUiOpen ? Vector2.zero : _inputActions.Player.Move.ReadValue<Vector2>();
         bool isSprinting = !isUiOpen && _inputActions.Player.Sprint.IsPressed();
+        bool isAttacking = _gathering != null && _gathering.IsAttacking;
+
+        // Attacks commit the player to walk speed and no sprinting
+        if (isAttacking)
+            isSprinting = false;
+
         // Ground check
         
         bool isGrounded = _cc.isGrounded;
@@ -296,8 +302,8 @@ public class PlayerController : NetworkBehaviour
 
         _cachedModelRotation = playerModel.rotation;
 
-        // Jump
-        if (_inputActions.Player.Jump.WasPressedThisFrame() && isGrounded)
+        // Jump (disabled while attacking so the attack isn't cancelled mid-swing)
+        if (_inputActions.Player.Jump.WasPressedThisFrame() && isGrounded && !isAttacking)
         {
             // v = sqrt(2 * |gravity| * jumpHeight)
             _velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);

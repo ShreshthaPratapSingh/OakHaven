@@ -4,8 +4,8 @@ using Unity.Netcode.Components;
 using UnityEngine;
 
 /// <summary>
-/// Handles the player's resource gathering interaction.
-/// Raycasts from the camera to detect ResourceNode objects and calls HitServerRpc.
+/// Handles the player's resource gathering interaction and melee attacks.
+/// Raycasts/overlaps from the player to detect ResourceNode objects and calls HitServerRpc.
 ///
 /// NETWORKING FLOW:
 /// ─ Input reading and raycasting happen CLIENT-SIDE (IsOwner only).
@@ -14,18 +14,12 @@ using UnityEngine;
 ///   the RPC to the server for authoritative processing.
 /// ─ The server re-validates everything before granting resources.
 ///
-/// EQUIPPED TOOL:
-/// ─ equippedToolTag is a NetworkVariable so the server can verify what tool
-///   the player actually has equipped (prevents spoofing).
-/// ─ Only the server writes to it; clients request changes via EquipToolServerRpc.
-/// ─ For initial testing with just trees, set it to "Axe" in the Inspector
-///   or call EquipToolServerRpc("Axe") at start.
-///
-/// EDITOR SETUP:
-/// 1. Add this component to the player prefab (same GameObject as PlayerController).
-/// 2. Set interactRange in the Inspector (default: 4 meters).
-/// 3. Set interactLayerMask to include the layer your resource nodes are on.
-/// 4. No camera reference needed — we find Camera.main at runtime for the owner.
+/// ATTACKS:
+/// ─ Bare hands trigger the "Punch" animation.
+/// ─ Equipping an item whose ItemDefinition.toolTag is "Axe" triggers "AxeSwing".
+/// ─ Attacks are only allowed while grounded and moving at walk speed or slower.
+/// ─ The resource hit is resolved after <see cref="gatherImpactDelay"/> seconds so it
+///   lines up with the swing's impact frame, not the button press.
 /// </summary>
 [RequireComponent(typeof(NetworkObject))]
 public class PlayerGathering : NetworkBehaviour
@@ -47,6 +41,11 @@ public class PlayerGathering : NetworkBehaviour
              "Leave empty for 'bare hands'. Set to 'Axe' to test tree gathering.")]
     [SerializeField] private string startingToolTag = "Axe";
 
+    [Header("Attack Timing")]
+    [Tooltip("Seconds into the swing/punch before the resource hit is resolved. " +
+             "Tune this to the impact frame of your animation.")]
+    [SerializeField] private float gatherImpactDelay = 0.35f;
+
     [Header("Visual Debug")]
     [Tooltip("If true, draws a debug ray in the Scene view showing the interaction raycast.")]
     [SerializeField] private bool debugDrawRay = true;
@@ -56,7 +55,7 @@ public class PlayerGathering : NetworkBehaviour
     /// <summary>
     /// The tag of the player's currently equipped tool.
     /// Replicated to all peers so the server can validate tool requirements.
-    /// Only the server writes this (clients request changes via RPC).
+    /// Only the server writes this (clients request changes via equipment changes).
     /// </summary>
     public NetworkVariable<Unity.Collections.FixedString32Bytes> EquippedToolTag =
         new NetworkVariable<Unity.Collections.FixedString32Bytes>(
@@ -71,14 +70,14 @@ public class PlayerGathering : NetworkBehaviour
     private Camera _playerCamera;
     private Animator _animator;
     private NetworkAnimator _networkAnimator;
-    private Coroutine _punchRoutine;
-    private bool _punchQueued;
+    private PlayerEquipment _equipment;
+    private Coroutine _attackRoutine;
 
     /// <summary>
-    /// True while the punch animation is playing.
-    /// Read by PlayerController to freeze movement during the swing.
+    /// True while the punch or axe-swing animation is playing.
+    /// Read by PlayerController to freeze rotation and cap speed during the swing.
     /// </summary>
-    public bool IsPunching { get; private set; }
+    public bool IsAttacking { get; private set; }
 
     // ───────────────────────── Lifecycle ─────────────────────────
 
@@ -100,10 +99,6 @@ public class PlayerGathering : NetworkBehaviour
         if (!IsOwner) return;
 
         // FORCE-SET the layer mask to "Everything except our own layer".
-        // We use = instead of &= because the serialized Inspector value may not
-        // include custom layers (like ResourceBreak) that were added after the
-        // component was first created. This guarantees the raycast can hit all
-        // world layers (terrain, resources, etc.) while skipping our own collider.
         int playerLayer = gameObject.layer;
         interactLayerMask = ~(1 << playerLayer);
         Debug.Log($"[PlayerGathering] Interact LayerMask set to: {interactLayerMask.value} " +
@@ -114,9 +109,7 @@ public class PlayerGathering : NetworkBehaviour
 
         _animator = GetComponentInChildren<Animator>();
         _networkAnimator = GetComponent<NetworkAnimator>();
-
-        // Find the player's camera. It's a child of the camera pivot on this player.
-        // We use FindMainCamera() in Update since the camera might not be active yet.
+        _equipment = GetComponent<PlayerEquipment>();
     }
 
     public override void OnNetworkDespawn()
@@ -129,6 +122,13 @@ public class PlayerGathering : NetworkBehaviour
             _inputActions.Dispose();
             _inputActions = null;
         }
+
+        if (_attackRoutine != null)
+        {
+            StopCoroutine(_attackRoutine);
+            _attackRoutine = null;
+        }
+        IsAttacking = false;
     }
 
     // ───────────────────────── Update (Client-Side Only) ─────────────────────────
@@ -148,106 +148,155 @@ public class PlayerGathering : NetworkBehaviour
                       $"(layer mask: {interactLayerMask.value})");
         }
 
-        if(Cursor.lockState != CursorLockMode.Locked) return;
+        if (Cursor.lockState != CursorLockMode.Locked) return;
 
-        // Check for gather input — using the Attack action (left mouse button)
-        // since it's already bound and makes sense for "swing tool at resource"
+        // Left mouse = attack (punch or axe swing)
         if (_inputActions.Player.Attack.WasPressedThisFrame())
         {
-            if (IsPunching)
+            if (CanAttack())
             {
-                // Already punching — queue the next punch to play after this one finishes
-                _punchQueued = true;
+                StartAttack();
             }
-            else
-            {
-                StartPunch();
-            }
-
-            TryGather();
         }
     }
 
     /// <summary>
-    /// Begins a punch: plays the animation and starts the movement-lock timer.
+    /// Attacks are only allowed while grounded and at walk speed or slower.
+    /// This mirrors the Animator transition conditions on the UpperBody layer.
     /// </summary>
-    private void StartPunch()
+    private bool CanAttack()
     {
-        _punchQueued = false;
+        if (IsAttacking) return false;
+        if (_animator == null) return false;
 
-        if (_animator != null)
+        bool isGrounded = _animator.GetBool("isGrounded");
+        float speed = _animator.GetFloat("Speed");
+
+        return isGrounded && speed < 5.5f;
+    }
+
+    /// <summary>
+    /// Returns true if the player is holding an item tagged as an Axe.
+    /// Falls back to the legacy EquippedToolTag for test setups.
+    /// </summary>
+    private bool ShouldUseAxeSwing()
+    {
+        if (_equipment != null && !string.IsNullOrEmpty(_equipment.EquippedItemId))
         {
-            // Force-play Punch from frame 0, bypassing transitions (no Idle flicker)
-            if (_networkAnimator != null)
-                _networkAnimator.SetTrigger("Punch");
-            else if (_animator != null)
-                _animator.SetTrigger("Punch");
+            ItemDefinition def = ItemDatabase.GetItem(_equipment.EquippedItemId);
+            if (def != null && def.toolTag == "Axe")
+                return true;
+
+            return false;
         }
 
-        if (_punchRoutine != null) StopCoroutine(_punchRoutine);
-        _punchRoutine = StartCoroutine(PunchDuration());
+        return EquippedToolTag.Value.ToString() == "Axe";
     }
 
     /// <summary>
-    /// Locks movement for the punch animation duration.
-    /// Polls the Animator each frame to detect the exact moment the Punch clip
-    /// finishes, then either chains into a queued punch or unlocks movement.
+    /// Begins an attack: plays the correct animation and schedules the resource hit.
     /// </summary>
-    private IEnumerator PunchDuration()
+    private void StartAttack()
     {
-        IsPunching = true;
+        string trigger = ShouldUseAxeSwing() ? "AxeSwing" : "Punch";
 
-        // Wait one frame for the Animator to enter the Punch state
+        if (!HasTriggerParameter(trigger))
+        {
+            Debug.LogWarning($"[PlayerGathering] Animator is missing the '{trigger}' trigger. " +
+                             "Run Tools > OakHaven > Add Axe Swing to Player Animator.");
+            return;
+        }
+
+        if (_networkAnimator != null)
+            _networkAnimator.SetTrigger(trigger);
+        else if (_animator != null)
+            _animator.SetTrigger(trigger);
+
+        if (_attackRoutine != null) StopCoroutine(_attackRoutine);
+        _attackRoutine = StartCoroutine(AttackDuration());
+
+        StartCoroutine(DelayedGather());
+    }
+
+    private bool HasTriggerParameter(string name)
+    {
+        if (_animator == null) return false;
+        foreach (AnimatorControllerParameter p in _animator.parameters)
+        {
+            if (p.type == AnimatorControllerParameterType.Trigger && p.name == name)
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Tracks the attack animation and clears <see cref="IsAttacking"/> when it finishes.
+    /// </summary>
+    private IEnumerator AttackDuration()
+    {
+        IsAttacking = true;
+
+        // Wait one frame for the Animator to start the transition
         yield return null;
 
-        // Poll until the Punch animation finishes (normalizedTime >= 1.0)
-        while (_animator != null)
+        // Give the Animator a short window to actually enter the attack state
+        float entryTimeout = 0.5f;
+        while (_animator != null && entryTimeout > 0f)
         {
             AnimatorStateInfo stateInfo = _animator.GetCurrentAnimatorStateInfo(1);
-
-            // Check we're still in the Punch state and it has completed
-            if (stateInfo.IsName("Punch") && stateInfo.normalizedTime >= 1f)
-            {
+            if (stateInfo.IsName("Punch") || stateInfo.IsName("AxeSwing"))
                 break;
-            }
 
-            // If we've already left Punch (shouldn't happen, but safety check)
-            if (!stateInfo.IsName("Punch"))
-            {
-                break;
-            }
-
+            entryTimeout -= Time.deltaTime;
             yield return null;
         }
 
-        if (_punchQueued)
+        // Poll until the attack animation finishes
+        const float timeout = 3f;
+        float elapsed = 0f;
+
+        while (_animator != null && elapsed < timeout)
         {
-            // Chain directly into the next punch — no Idle in between
-            StartPunch();
+            AnimatorStateInfo stateInfo = _animator.GetCurrentAnimatorStateInfo(1);
+
+            bool inAttackState = stateInfo.IsName("Punch") || stateInfo.IsName("AxeSwing");
+            if (inAttackState)
+            {
+                if (stateInfo.normalizedTime >= 1f)
+                    break;
+            }
+            else
+            {
+                // Left the attack state (finished or interrupted)
+                break;
+            }
+
+            elapsed += Time.deltaTime;
+            yield return null;
         }
-        else
-        {
-            IsPunching = false;
-        }
+
+        IsAttacking = false;
+    }
+
+    /// <summary>
+    /// Waits for the swing to reach its impact frame before resolving the gather.
+    /// </summary>
+    private IEnumerator DelayedGather()
+    {
+        yield return new WaitForSeconds(gatherImpactDelay);
+        TryGather();
     }
 
     // ───────────────────────── Gathering Logic ─────────────────────────
 
     /// <summary>
-    /// Performs a raycast from the camera center, checks for a ResourceNode,
+    /// Performs an overlap check around the player for a ResourceNode,
     /// validates tool requirements CLIENT-SIDE, then sends the hit to the server.
     ///
-    /// CLIENT-SIDE ONLY — called from Update() which only runs on IsOwner.
+    /// CLIENT-SIDE ONLY — called from a coroutine started in Update() which only runs on IsOwner.
     /// </summary>
     private void TryGather()
     {
-        // ─── THIRD-PERSON GATHERING APPROACH ───
-        // A pixel-thin raycast from the camera rarely hits thin tree trunk colliders
-        // because screen-center in third-person typically points at the foliage (no collider)
-        // or the sky. Instead, we find the nearest ResourceNode within arm's reach
-        // of the PLAYER'S position using OverlapSphere, which is standard for
-        // third-person melee/gathering interactions.
-
         Vector3 playerPos = transform.position + Vector3.up * 1f; // ~chest height
 
         // Find all colliders within gather range of the player
@@ -255,13 +304,11 @@ public class PlayerGathering : NetworkBehaviour
 
         if (debugDrawRay)
         {
-            // Draw the gather sphere in the Scene view
             Debug.DrawRay(playerPos, Vector3.up * interactRange, Color.yellow, 0.5f);
             Debug.DrawRay(playerPos, Vector3.forward * interactRange, Color.yellow, 0.5f);
             Debug.DrawRay(playerPos, Vector3.right * interactRange, Color.yellow, 0.5f);
         }
 
-        // Find the closest ResourceNode among all hits
         ResourceNode closestNode = null;
         float closestDist = float.MaxValue;
 
@@ -270,7 +317,6 @@ public class PlayerGathering : NetworkBehaviour
             ResourceNode node = col.GetComponentInParent<ResourceNode>();
             if (node == null) continue;
 
-            // Skip depleted nodes
             if (node.CurrentHealth.Value <= 0) continue;
 
             float dist = Vector3.Distance(playerPos, col.ClosestPoint(playerPos));
@@ -300,11 +346,10 @@ public class PlayerGathering : NetworkBehaviour
 
         if (debugDrawRay)
         {
-            // Draw a line from player to the resource we're about to hit
             Debug.DrawLine(playerPos, closestNode.transform.position, Color.green, 1f);
         }
 
-        // ── Client-side tool validation (for responsiveness) ──
+        // Client-side tool validation (for responsiveness)
         string myToolTag = EquippedToolTag.Value.ToString();
         if (!string.IsNullOrEmpty(closestNode.RequiredToolTag))
         {
@@ -312,13 +357,10 @@ public class PlayerGathering : NetworkBehaviour
             {
                 Debug.Log($"[PlayerGathering] Can't gather '{closestNode.ResourceType}' — " +
                           $"requires '{closestNode.RequiredToolTag}' but equipped '{myToolTag}'.");
-
-                // TODO: Show UI feedback like "Requires Axe" floating text
                 return;
             }
         }
 
-        // ── Send hit to server ──
         Debug.Log($"[PlayerGathering] Hitting '{closestNode.ResourceType}' " +
                   $"(health: {closestNode.CurrentHealth.Value}/{closestNode.MaxHealth}, " +
                   $"distance: {closestDist:F2}m)");
@@ -331,7 +373,6 @@ public class PlayerGathering : NetworkBehaviour
     /// <summary>
     /// Returns the currently equipped tool tag.
     /// Used by ResourceNode on the server to verify the client's tool.
-    /// Reads from the NetworkVariable, so it works on all peers.
     /// </summary>
     public string GetEquippedToolTag()
     {
@@ -340,21 +381,17 @@ public class PlayerGathering : NetworkBehaviour
 
     /// <summary>
     /// Client requests to change their equipped tool.
-    /// In a full implementation, this would validate against the player's
-    /// inventory to ensure they actually own the tool.
+    /// Kept for compatibility; in normal gameplay the equipment system drives this value.
     /// </summary>
     [ServerRpc]
     public void EquipToolServerRpc(string toolTag, ServerRpcParams rpcParams = default)
     {
-        // Validate sender owns this player
         if (rpcParams.Receive.SenderClientId != OwnerClientId)
         {
             Debug.LogWarning($"[PlayerGathering] Client {rpcParams.Receive.SenderClientId} " +
                              $"tried to change tool on client {OwnerClientId}'s player!");
             return;
         }
-
-        // TODO: Validate the player actually has this tool in their inventory
 
         EquippedToolTag.Value = new Unity.Collections.FixedString32Bytes(toolTag);
         Debug.Log($"[PlayerGathering] Client {OwnerClientId} equipped tool: '{toolTag}'");
