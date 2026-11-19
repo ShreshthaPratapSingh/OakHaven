@@ -61,6 +61,9 @@ public class PlayerEquipment : NetworkBehaviour
     /// <summary>The player's equipment inventory (tools live there, not in ResourceInventory).</summary>
     private Inventory _equipment;
 
+    /// <summary>Child Animator used to set equipment pose parameters.</summary>
+    private Animator _animator;
+
     // ───────────────────────── Public Accessors ─────────────────────────
 
     /// <summary>Currently equipped item id, or "" if nothing is held. Runs on ANY peer.</summary>
@@ -76,6 +79,7 @@ public class PlayerEquipment : NetworkBehaviour
         base.OnNetworkSpawn();
 
         _equipment = GetComponent<Inventory>();
+        _animator = GetComponentInChildren<Animator>();
 
         // Visuals are EVERYONE's business (other players must see the axe),
         // so the subscription is not gated behind IsOwner.
@@ -229,6 +233,12 @@ public class PlayerEquipment : NetworkBehaviour
         }
 
         string id = _equippedItemId.Value.ToString();
+
+        if (_animator != null)
+        {
+            _animator.SetBool("AxeEquipped", id == "stone_axe");
+        }
+
         if (string.IsNullOrEmpty(id)) return;   // nothing equipped
 
         ItemDefinition def = ItemDatabase.GetItem(id);

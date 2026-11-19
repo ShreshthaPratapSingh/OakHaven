@@ -1,6 +1,7 @@
 using System.Collections;
 using Unity.Collections.Tests.CoreCLR.TestJobs;
 using Unity.Netcode;
+using Unity.Netcode.Components;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -49,6 +50,7 @@ public class PlayerController : NetworkBehaviour
     private CharacterController _cc;
     private InputSystem_Actions _inputActions;
     private Animator _animator;
+    private NetworkAnimator _networkAnimator;
     private PlayerGathering _gathering;
 
     private Vector3 _spawnPosition;      // Saved spawn position for respawn safety
@@ -71,6 +73,7 @@ public class PlayerController : NetworkBehaviour
 
         _cc = GetComponent<CharacterController>();
         _animator = GetComponentInChildren<Animator>();
+        _networkAnimator = GetComponent<NetworkAnimator>();
         _gathering = GetComponent<PlayerGathering>();
 
         // IMMEDIATELY disable CharacterController to prevent it from
@@ -248,7 +251,7 @@ public class PlayerController : NetworkBehaviour
         else if (_wasAirborne)
         {
             _wasAirborne = false;
-            if(_animator != null) _animator.SetTrigger("Land");
+            if(_networkAnimator != null) _networkAnimator.SetTrigger("Land");
         }
         if (isGrounded && _velocity.y < 0f)
         {
@@ -298,9 +301,9 @@ public class PlayerController : NetworkBehaviour
         {
             // v = sqrt(2 * |gravity| * jumpHeight)
             _velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
-            if (_animator != null)
+            if (_networkAnimator != null)
             {
-                _animator.SetTrigger("Jump");
+                _networkAnimator.SetTrigger("Jump");
             }
         }
 

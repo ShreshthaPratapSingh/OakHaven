@@ -1,5 +1,6 @@
 using System.Collections;
 using Unity.Netcode;
+using Unity.Netcode.Components;
 using UnityEngine;
 
 /// <summary>
@@ -69,6 +70,7 @@ public class PlayerGathering : NetworkBehaviour
     private InputSystem_Actions _inputActions;
     private Camera _playerCamera;
     private Animator _animator;
+    private NetworkAnimator _networkAnimator;
     private Coroutine _punchRoutine;
     private bool _punchQueued;
 
@@ -111,6 +113,7 @@ public class PlayerGathering : NetworkBehaviour
         _inputActions.Player.Enable();
 
         _animator = GetComponentInChildren<Animator>();
+        _networkAnimator = GetComponent<NetworkAnimator>();
 
         // Find the player's camera. It's a child of the camera pivot on this player.
         // We use FindMainCamera() in Update since the camera might not be active yet.
@@ -175,7 +178,10 @@ public class PlayerGathering : NetworkBehaviour
         if (_animator != null)
         {
             // Force-play Punch from frame 0, bypassing transitions (no Idle flicker)
-            _animator.SetTrigger("Punch");
+            if (_networkAnimator != null)
+                _networkAnimator.SetTrigger("Punch");
+            else if (_animator != null)
+                _animator.SetTrigger("Punch");
         }
 
         if (_punchRoutine != null) StopCoroutine(_punchRoutine);
