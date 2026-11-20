@@ -16,4 +16,7 @@ MonoBehaviour:
   displayName: Stone
   icon: {fileID: 3275911576998528778, guid: 4973d6da8999f3c4e89d0e75816b2841, type: 3}
   maxStackSize: 50
+  weight: 3
   category: Resource
+  toolTag: 
+  equippedPrefab: {fileID: 0}

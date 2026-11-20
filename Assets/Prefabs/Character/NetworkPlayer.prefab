@@ -156,6 +156,9 @@ GameObject:
   - component: {fileID: -7252172454553745922}
   - component: {fileID: -746832235637175571}
   - component: {fileID: 8545413004311536817}
+  - component: {fileID: 1656564301608382815}
+  - component: {fileID: 987654321098765432}
+  - component: {fileID: 987654321098765433}
   m_Layer: 7
   m_Name: NetworkPlayer
   m_TagString: Untagged
@@ -362,11 +365,14 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerGathering
   ShowTopMostFoldoutHeaderGroup: 1
-  interactRange: 4
+  maxHitDistance: 4
+  hitRadius: 0.25
   interactLayerMask:
     serializedVersion: 2
     m_Bits: 64
-  startingToolTag: 
+  gatherImpactDelay: 0.35
+  attackWindow: 1
+  attackCooldown: 0.5
   debugDrawRay: 1
   EquippedToolTag:
     UpdateTraits:
@@ -448,7 +454,6 @@ MonoBehaviour:
   interactLayerMask:
     serializedVersion: 2
     m_Bits: 4294967295
-  interactKey: 101
 --- !u!114 &8545413004311536817
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -464,6 +469,128 @@ MonoBehaviour:
   ShowTopMostFoldoutHeaderGroup: 1
   handSocket: {fileID: 5650568220094654334}
   equipKey: 113
+--- !u!114 &1656564301608382815
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7753491147168892034}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e8d0727d5ae3244e3b569694d3912374, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.Components.NetworkAnimator
+  ShowTopMostFoldoutHeaderGroup: 1
+  NetworkAnimatorExpanded: 0
+  AuthorityMode: 1
+  m_Animator: {fileID: 7520112118925252243}
+  TransitionStateInfoList:
+  - IsCrossFadeExit: 0
+    Layer: 0
+    OriginatingState: 1744665739
+    DestinationState: 125937960
+    TransitionDuration: 0.25
+    TriggerNameHash: 125937960
+    TransitionIndex: 2
+  - IsCrossFadeExit: 0
+    Layer: 0
+    OriginatingState: -526601997
+    DestinationState: 125937960
+    TransitionDuration: 0.25
+    TriggerNameHash: 125937960
+    TransitionIndex: 1
+  - IsCrossFadeExit: 0
+    Layer: 0
+    OriginatingState: 2081823275
+    DestinationState: 125937960
+    TransitionDuration: 0.75
+    TriggerNameHash: 125937960
+    TransitionIndex: 1
+  - IsCrossFadeExit: 0
+    Layer: 0
+    OriginatingState: 125937960
+    DestinationState: 2081823275
+    TransitionDuration: 0.5
+    TriggerNameHash: 137525990
+    TransitionIndex: 0
+  - IsCrossFadeExit: 0
+    Layer: 0
+    OriginatingState: 125937960
+    DestinationState: 1744665739
+    TransitionDuration: 0.5
+    TriggerNameHash: 137525990
+    TransitionIndex: 1
+  - IsCrossFadeExit: 0
+    Layer: 0
+    OriginatingState: 125937960
+    DestinationState: -526601997
+    TransitionDuration: 0.5
+    TriggerNameHash: 137525990
+    TransitionIndex: 2
+  AnimatorParameterEntries:
+    ParameterEntries:
+    - name: Speed
+      NameHash: -823668238
+      Synchronize: 1
+      ParameterType: 1
+    - name: Jump
+      NameHash: 125937960
+      Synchronize: 1
+      ParameterType: 9
+    - name: isGrounded
+      NameHash: 1360771445
+      Synchronize: 1
+      ParameterType: 4
+    - name: Punch
+      NameHash: -316645540
+      Synchronize: 1
+      ParameterType: 9
+    - name: Land
+      NameHash: 137525990
+      Synchronize: 1
+      ParameterType: 9
+    - name: AxeEquipped
+      NameHash: 102701683
+      Synchronize: 1
+      ParameterType: 4
+    - name: AxeSwing
+      NameHash: -513903876
+      Synchronize: 1
+      ParameterType: 9
+  AnimatorParametersExpanded: 0
+--- !u!114 &987654321098765432
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7753491147168892034}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f4a59f70c0d64079978273b5b3752503, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PlayerStartingLoadout
+  ShowTopMostFoldoutHeaderGroup: 1
+  startingItems: []
+--- !u!114 &987654321098765433
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7753491147168892034}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7c3f9e2a8b5d4d7c9f1a2b4c6d8e0f1a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PlayerInteractor
+  ShowTopMostFoldoutHeaderGroup: 1
+  scanRadius: 3
+  interactableLayers:
+    serializedVersion: 2
+    m_Bits: 4294967167
+  promptHeight: 0.5
 --- !u!1 &8803246946417512816
 GameObject:
   m_ObjectHideFlags: 0

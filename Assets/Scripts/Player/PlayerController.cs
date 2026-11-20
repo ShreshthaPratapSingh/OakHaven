@@ -1,6 +1,7 @@
 using System.Collections;
 using Unity.Collections.Tests.CoreCLR.TestJobs;
 using Unity.Netcode;
+using Unity.Netcode.Components;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -49,6 +50,7 @@ public class PlayerController : NetworkBehaviour
     private CharacterController _cc;
     private InputSystem_Actions _inputActions;
     private Animator _animator;
+    private NetworkAnimator _networkAnimator;
     private PlayerGathering _gathering;
 
     private Vector3 _spawnPosition;      // Saved spawn position for respawn safety
@@ -60,7 +62,6 @@ public class PlayerController : NetworkBehaviour
     private bool _movementReady;         // True once CC is properly teleported and enabled
     private float _currentSpeed;
     private Vector3 _lastMoveDir;
-    private Quaternion _cachedModelRotation;
     private bool _wasAirborne;
 
     // ───────────────────────── Network Lifecycle ─────────────────────────
@@ -71,6 +72,7 @@ public class PlayerController : NetworkBehaviour
 
         _cc = GetComponent<CharacterController>();
         _animator = GetComponentInChildren<Animator>();
+        _networkAnimator = GetComponent<NetworkAnimator>();
         _gathering = GetComponent<PlayerGathering>();
 
         // IMMEDIATELY disable CharacterController to prevent it from
@@ -177,10 +179,6 @@ public class PlayerController : NetworkBehaviour
 
     private void LateUpdate()
     {
-        if (_gathering != null && _gathering.IsPunching && playerModel != null)
-        {
-            playerModel.rotation = _cachedModelRotation;
-        }
         // Position the camera after all movement has been applied.
         UpdateCameraPosition();
     }
@@ -237,6 +235,12 @@ public class PlayerController : NetworkBehaviour
         bool isUiOpen = Cursor.lockState != CursorLockMode.Locked;
         Vector2 moveInput = isUiOpen ? Vector2.zero : _inputActions.Player.Move.ReadValue<Vector2>();
         bool isSprinting = !isUiOpen && _inputActions.Player.Sprint.IsPressed();
+        bool isAttacking = _gathering != null && _gathering.IsAttacking;
+
+        // Attacks commit the player to walk speed and no sprinting
+        if (isAttacking)
+            isSprinting = false;
+
         // Ground check
         
         bool isGrounded = _cc.isGrounded;
@@ -248,7 +252,7 @@ public class PlayerController : NetworkBehaviour
         else if (_wasAirborne)
         {
             _wasAirborne = false;
-            if(_animator != null) _animator.SetTrigger("Land");
+            if(_networkAnimator != null) _networkAnimator.SetTrigger("Land");
         }
         if (isGrounded && _velocity.y < 0f)
         {
@@ -282,25 +286,24 @@ public class PlayerController : NetworkBehaviour
             _animator.SetFloat("Speed", _currentSpeed);
         }
 
-        // Rotate model toward movement direction (third-person style)
-        if (moveDir.sqrMagnitude > 0.01f && playerModel != null)
+        // Rotate the networked root toward movement direction (third-person style).
+        // This ensures other clients see the player facing change via NetworkTransform.
+        if (moveDir.sqrMagnitude > 0.01f && !isAttacking)
         {
             float targetAngle = Mathf.Atan2(moveDir.x, moveDir.z) * Mathf.Rad2Deg;
             float smoothedAngle = Mathf.SmoothDampAngle(
-                playerModel.eulerAngles.y, targetAngle, ref _turnSmoothVelocity, turnSmoothTime);
-            playerModel.rotation = Quaternion.Euler(0f, smoothedAngle, 0f);
+                transform.eulerAngles.y, targetAngle, ref _turnSmoothVelocity, turnSmoothTime);
+            transform.rotation = Quaternion.Euler(0f, smoothedAngle, 0f);
         }
 
-        _cachedModelRotation = playerModel.rotation;
-
-        // Jump
-        if (_inputActions.Player.Jump.WasPressedThisFrame() && isGrounded)
+        // Jump (disabled while attacking so the attack isn't cancelled mid-swing)
+        if (_inputActions.Player.Jump.WasPressedThisFrame() && isGrounded && !isAttacking)
         {
             // v = sqrt(2 * |gravity| * jumpHeight)
             _velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
-            if (_animator != null)
+            if (_networkAnimator != null)
             {
-                _animator.SetTrigger("Jump");
+                _networkAnimator.SetTrigger("Jump");
             }
         }
 

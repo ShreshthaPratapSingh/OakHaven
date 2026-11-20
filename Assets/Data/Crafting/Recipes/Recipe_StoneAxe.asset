@@ -16,9 +16,9 @@ MonoBehaviour:
   displayName: Stone Axe
   ingredients:
   - itemId: wood
-    quantity: 1
+    quantity: 5
   - itemId: stone
-    quantity: 1
+    quantity: 4
   outputItemId: stone_axe
   outputQuantity: 1
   craftTimeSec: 0

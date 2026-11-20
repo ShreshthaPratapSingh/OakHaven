@@ -58,8 +58,8 @@ BoxCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Size: {x: 1, y: 1, z: 1}
-  m_Center: {x: 0, y: 0, z: 0}
+  m_Size: {x: 2.5, y: 1, z: 1.5}
+  m_Center: {x: -5.5, y: 0.1, z: 0.8}
 --- !u!114 &4644246214419042281
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -102,9 +102,9 @@ MonoBehaviour:
   ShowTopMostFoldoutHeaderGroup: 1
   resourceType: fiber
   amountPerHit: 1
-  maxHealth: 5
+  maxHealth: 10
   requiredToolTag: 
-  hitCooldown: 0.5
+  hitCooldown: 0.35
   CurrentHealth:
     UpdateTraits:
       MinSecondsBetweenUpdates: 0

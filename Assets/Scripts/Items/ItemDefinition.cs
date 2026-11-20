@@ -42,6 +42,10 @@ public class ItemDefinition : ScriptableObject
     public string category = "Resource";
 
     [Header("Equippable")]
+    [Tooltip("Optional tool tag used for resource gathering validation (e.g. 'Axe'). " +
+             "Leave empty if this item is not a gather tool.")]
+    public string toolTag = "";
+
     [Tooltip("Visual prefab attached to the hand socket when equipped. Null = not a held item.")]
     public GameObject equippedPrefab;
 }
