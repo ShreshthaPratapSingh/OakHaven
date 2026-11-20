@@ -16,7 +16,7 @@ MonoBehaviour:
   displayName: Stone Axe
   icon: {fileID: -3526948457597213551, guid: b203fe00f7dc41a48a68bafcf21b5436, type: 3}
   maxStackSize: 1
-  weight: 1
+  weight: 5
   category: Tool
   toolTag: Axe
   equippedPrefab: {fileID: 8914042903712340855, guid: 80cdfbd3adab7354c8b1e13afe0113a7, type: 3}

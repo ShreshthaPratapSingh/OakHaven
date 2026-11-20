@@ -62,7 +62,6 @@ public class PlayerController : NetworkBehaviour
     private bool _movementReady;         // True once CC is properly teleported and enabled
     private float _currentSpeed;
     private Vector3 _lastMoveDir;
-    private Quaternion _cachedModelRotation;
     private bool _wasAirborne;
 
     // ───────────────────────── Network Lifecycle ─────────────────────────
@@ -180,10 +179,6 @@ public class PlayerController : NetworkBehaviour
 
     private void LateUpdate()
     {
-        if (_gathering != null && _gathering.IsAttacking && playerModel != null)
-        {
-            playerModel.rotation = _cachedModelRotation;
-        }
         // Position the camera after all movement has been applied.
         UpdateCameraPosition();
     }
@@ -291,16 +286,15 @@ public class PlayerController : NetworkBehaviour
             _animator.SetFloat("Speed", _currentSpeed);
         }
 
-        // Rotate model toward movement direction (third-person style)
-        if (moveDir.sqrMagnitude > 0.01f && playerModel != null)
+        // Rotate the networked root toward movement direction (third-person style).
+        // This ensures other clients see the player facing change via NetworkTransform.
+        if (moveDir.sqrMagnitude > 0.01f && !isAttacking)
         {
             float targetAngle = Mathf.Atan2(moveDir.x, moveDir.z) * Mathf.Rad2Deg;
             float smoothedAngle = Mathf.SmoothDampAngle(
-                playerModel.eulerAngles.y, targetAngle, ref _turnSmoothVelocity, turnSmoothTime);
-            playerModel.rotation = Quaternion.Euler(0f, smoothedAngle, 0f);
+                transform.eulerAngles.y, targetAngle, ref _turnSmoothVelocity, turnSmoothTime);
+            transform.rotation = Quaternion.Euler(0f, smoothedAngle, 0f);
         }
-
-        _cachedModelRotation = playerModel.rotation;
 
         // Jump (disabled while attacking so the attack isn't cancelled mid-swing)
         if (_inputActions.Player.Jump.WasPressedThisFrame() && isGrounded && !isAttacking)

@@ -7,8 +7,8 @@ using UnityEngine;
 /// Lives on the player prefab alongside PlayerGathering, Inventory, ResourceInventory.
 ///
 /// NETWORKING FLOW:
-/// ─ Input reading and proximity detection happen CLIENT-SIDE (IsOwner only).
-/// ─ When the player interacts, this script calls Workstation.ContributeRepairServerRpc()
+/// - Input reading and proximity detection happen CLIENT-SIDE (IsOwner only).
+/// - When the player interacts, this script calls Workstation.ContributeRepairServerRpc()
 ///   or Workstation.RequestCraftServerRpc() which run on the server.
 ///
 /// EDITOR SETUP:
@@ -19,7 +19,9 @@ using UnityEngine;
 [RequireComponent(typeof(NetworkObject))]
 public class PlayerCrafting : NetworkBehaviour
 {
-    // ───────────────────────── Configuration ─────────────────────────
+    // ------------------------------------------------------------------
+    // Configuration
+    // ------------------------------------------------------------------
 
     [Header("Interaction Settings")]
     [Tooltip("Maximum distance to detect workstations. " +
@@ -29,11 +31,9 @@ public class PlayerCrafting : NetworkBehaviour
     [Tooltip("Which layers the interaction detection can hit.")]
     [SerializeField] private LayerMask interactLayerMask = ~0;
 
-    [Header("Input")]
-    [Tooltip("Key to interact with the nearest workstation.")]
-    [SerializeField] private KeyCode interactKey = KeyCode.E;
-
-    // ───────────────────────── Private State ─────────────────────────
+    // ------------------------------------------------------------------
+    // Private State
+    // ------------------------------------------------------------------
 
     /// <summary>
     /// The workstation currently in range (closest one). Null if none nearby.
@@ -41,7 +41,9 @@ public class PlayerCrafting : NetworkBehaviour
     private Workstation _nearbyWorkstation;
     private WorkstationUI _workstationUI;
 
-    // ───────────────────────── Public Accessors ─────────────────────────
+    // ------------------------------------------------------------------
+    // Public Accessors
+    // ------------------------------------------------------------------
 
     /// <summary>
     /// The workstation currently in range. Used by UI to show interact prompts
@@ -49,7 +51,9 @@ public class PlayerCrafting : NetworkBehaviour
     /// </summary>
     public Workstation NearbyWorkstation => _nearbyWorkstation;
 
-    // ───────────────────────── Lifecycle ─────────────────────────
+    // ------------------------------------------------------------------
+    // Lifecycle
+    // ------------------------------------------------------------------
 
     public override void OnNetworkSpawn()
     {
@@ -62,26 +66,24 @@ public class PlayerCrafting : NetworkBehaviour
         interactLayerMask = ~(1 << playerLayer);
 
         _workstationUI = FindFirstObjectByType<WorkstationUI>();
-
     }
 
-    // ───────────────────────── Update (Client-Side Only) ─────────────────────────
+    // ------------------------------------------------------------------
+    // Update (Client-Side Only)
+    // ------------------------------------------------------------------
 
     private void Update()
     {
         if (!IsOwner) return;
 
-        // Continuously scan for nearby workstations
+        // Continuously scan for nearby workstations so WorkstationUI can auto-close
+        // when the player walks away.
         DetectNearbyWorkstation();
-
-        // Handle interact input
-        if (Input.GetKeyDown(interactKey) && _nearbyWorkstation != null)
-        {
-            OnInteractWithWorkstation();
-        }
     }
 
-    // ───────────────────────── Workstation Detection ─────────────────────────
+    // ------------------------------------------------------------------
+    // Workstation Detection
+    // ------------------------------------------------------------------
 
     /// <summary>
     /// Finds the closest workstation within range using OverlapSphere.
@@ -111,13 +113,15 @@ public class PlayerCrafting : NetworkBehaviour
         _nearbyWorkstation = closest;
     }
 
-    // ───────────────────────── Interaction ─────────────────────────
+    // ------------------------------------------------------------------
+    // Interaction
+    // ------------------------------------------------------------------
 
     /// <summary>
-    /// Called when the player presses the interact key near a workstation.
-    /// For now, logs the interaction. The UI system (Phase 4) will hook into this.
+    /// Called by PlayerInteractor when the player presses the interact button
+    /// while a workstation is the selected target.
     /// </summary>
-    private void OnInteractWithWorkstation()
+    public void OpenCurrentWorkstation()
     {
         if (_nearbyWorkstation == null) return;
 
@@ -128,45 +132,24 @@ public class PlayerCrafting : NetworkBehaviour
             return;
         }
 
-        // if (!_nearbyWorkstation.IsRepaired.Value)
-        // {
-        //     Debug.Log($"[PlayerCrafting] Workstation '{def.displayName}' needs repair. " +
-        //               $"Press interact to contribute resources.");
-        //     // TODO: Open repair UI panel
-        // }
-        // else
-        // {
-        //     Debug.Log($"[PlayerCrafting] Workstation '{def.displayName}' is ready. " +
-        //               $"Opening crafting menu...");
-        //     // TODO: Open crafting UI panel
-        // }
+        if (_workstationUI == null)
+            _workstationUI = FindFirstObjectByType<WorkstationUI>();
 
-                if (!_nearbyWorkstation.IsRepaired.Value)
+        if (_workstationUI == null)
         {
-            // Open repair UI
-            if (_workstationUI != null)
-            {
-                if (_workstationUI.IsOpen)
-                    _workstationUI.ClosePanel();
-                else
-                    _workstationUI.OpenPanel(_nearbyWorkstation);
-            }
+            Debug.LogWarning("[PlayerCrafting] No WorkstationUI found in scene.");
+            return;
         }
+
+        if (_workstationUI.IsOpen)
+            _workstationUI.ClosePanel();
         else
-        {
-            // Open crafting UI
-            if (_workstationUI != null)
-            {
-                if (_workstationUI.IsOpen)
-                    _workstationUI.ClosePanel();
-                else
-                    _workstationUI.OpenPanel(_nearbyWorkstation);
-            }
-        }
-
+            _workstationUI.OpenPanel(_nearbyWorkstation);
     }
 
-    // ───────────────────────── Public Methods (called by UI) ─────────────────────────
+    // ------------------------------------------------------------------
+    // Public Methods (called by UI)
+    // ------------------------------------------------------------------
 
     /// <summary>
     /// Sends a repair contribution to the server.

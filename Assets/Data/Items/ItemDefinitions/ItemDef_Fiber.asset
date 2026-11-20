@@ -16,5 +16,7 @@ MonoBehaviour:
   displayName: Fiber
   icon: {fileID: 4865453527120926370, guid: 5d4c165b75ae6814ca61cf95e6d6d59f, type: 3}
   maxStackSize: 50
-  weight: 0.1
+  weight: 1
   category: Resource
+  toolTag: 
+  equippedPrefab: {fileID: 0}

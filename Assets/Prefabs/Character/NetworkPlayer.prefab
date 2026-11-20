@@ -158,6 +158,7 @@ GameObject:
   - component: {fileID: 8545413004311536817}
   - component: {fileID: 1656564301608382815}
   - component: {fileID: 987654321098765432}
+  - component: {fileID: 987654321098765433}
   m_Layer: 7
   m_Name: NetworkPlayer
   m_TagString: Untagged
@@ -453,7 +454,6 @@ MonoBehaviour:
   interactLayerMask:
     serializedVersion: 2
     m_Bits: 4294967295
-  interactKey: 101
 --- !u!114 &8545413004311536817
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -572,16 +572,25 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerStartingLoadout
   ShowTopMostFoldoutHeaderGroup: 1
-  startingItems:
-  - itemId: wood
-    amount: 2
-    isResource: 1
-  - itemId: stone
-    amount: 2
-    isResource: 1
-  - itemId: fiber
-    amount: 2
-    isResource: 1
+  startingItems: []
+--- !u!114 &987654321098765433
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7753491147168892034}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7c3f9e2a8b5d4d7c9f1a2b4c6d8e0f1a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PlayerInteractor
+  ShowTopMostFoldoutHeaderGroup: 1
+  scanRadius: 3
+  interactableLayers:
+    serializedVersion: 2
+    m_Bits: 4294967167
+  promptHeight: 0.5
 --- !u!1 &8803246946417512816
 GameObject:
   m_ObjectHideFlags: 0

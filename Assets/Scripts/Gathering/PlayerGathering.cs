@@ -269,22 +269,22 @@ public class PlayerGathering : NetworkBehaviour
 
         if (_playerCamera == null) yield break;
 
-        // Aim from the player's chest using the camera's forward direction.
-        // Using the camera position fails in third-person because the camera is
-        // behind the player, so a nearby tree can be beyond maxHitDistance.
-        Vector3 origin = transform.position + Vector3.up * 1.5f;
+        // Aim from the camera crosshair. In third-person the camera is behind the
+        // player, so a cast from the chest often misses small objects the crosshair
+        // is actually on (like bushes).
+        Vector3 origin = _playerCamera.transform.position;
         Vector3 direction = _playerCamera.transform.forward;
 
         if (debugDrawRay)
         {
-            Debug.DrawRay(origin, direction * maxHitDistance, Color.yellow, 0.5f);
+            Debug.DrawRay(origin, direction * maxHitDistance * 2f, Color.yellow, 0.5f);
         }
 
         if (!Physics.SphereCast(origin, hitRadius, direction, out RaycastHit hit,
-                                maxHitDistance, interactLayerMask, QueryTriggerInteraction.Collide))
+                                maxHitDistance * 2f, interactLayerMask, QueryTriggerInteraction.Collide))
         {
             if (debugDrawRay)
-                Debug.Log("[PlayerGathering] SphereCast hit nothing.");
+                Debug.Log("[PlayerGathering] Crosshair SphereCast hit nothing.");
             yield break;
         }
 
@@ -292,7 +292,7 @@ public class PlayerGathering : NetworkBehaviour
         if (node == null)
         {
             if (debugDrawRay)
-                Debug.Log($"[PlayerGathering] Hit '{hit.collider.name}' but it is not a ResourceNode.");
+                Debug.Log($"[PlayerGathering] Crosshair hit '{hit.collider.name}' but it is not a ResourceNode.");
             yield break;
         }
 
@@ -300,6 +300,15 @@ public class PlayerGathering : NetworkBehaviour
         {
             if (debugDrawRay)
                 Debug.Log($"[PlayerGathering] Target '{node.ResourceType}' is already depleted.");
+            yield break;
+        }
+
+        // Reject targets that are clearly out of melee range before bothering the server.
+        float distanceToNode = Vector3.Distance(transform.position, node.transform.position);
+        if (distanceToNode > maxHitDistance + 0.5f)
+        {
+            if (debugDrawRay)
+                Debug.Log($"[PlayerGathering] Target '{node.ResourceType}' is too far from player ({distanceToNode:F2}m).");
             yield break;
         }
 
