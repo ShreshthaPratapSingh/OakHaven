@@ -9296,7 +9296,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::DayNightCycle
   ShowTopMostFoldoutHeaderGroup: 1
-  dayLengthSeconds: 60
+  dayLengthSeconds: 600
   startHour: 8
   sun: {fileID: 410087040}
   moon: {fileID: 1481593211}

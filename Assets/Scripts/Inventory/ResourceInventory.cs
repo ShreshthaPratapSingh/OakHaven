@@ -11,7 +11,7 @@ using UnityEngine;
 /// NETWORKING:
 /// ─ Multiple NetworkBehaviours with their own NetworkLists on one NetworkObject
 ///   is fully supported by Netcode for GameObjects. No special handling needed.
-/// ─ ResourceNode.HitServerRpc looks up the hitting player's ResourceInventory
+/// ─ ResourceNode.ServerApplyHit looks up the hitting player's ResourceInventory
 ///   to add gathered materials.
 ///
 /// EDITOR SETUP:
@@ -33,7 +33,7 @@ public class ResourceInventory : BaseInventory
     /// Client-callable RPC to request adding a resource.
     /// Server validates sender ownership before performing the add.
     /// Primarily used for future features (e.g. picking up dropped resources).
-    /// Gathering goes through ResourceNode.HitServerRpc → AddItem() directly.
+    /// Gathering goes through ResourceNode.ServerApplyHit → AddItem() directly.
     /// </summary>
     [ServerRpc]
     public void AddResourceServerRpc(string itemId, int amount, ServerRpcParams rpcParams = default)

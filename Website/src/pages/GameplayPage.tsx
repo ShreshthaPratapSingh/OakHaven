@@ -26,6 +26,7 @@ export function GameplayPage() {
                 poster={gameplayVideo.poster}
                 caption={gameplayVideo.caption}
                 aspectRatio="video"
+                controls
                 autoPlay
                 loop
                 muted

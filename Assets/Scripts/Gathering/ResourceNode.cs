@@ -7,25 +7,16 @@ using UnityEngine;
 /// NETWORKING FLOW:
 /// ─ currentHealth is a NetworkVariable<int> that auto-replicates to all clients.
 ///   Only the server can write to it (default write permission = Server).
-/// ─ HitServerRpc() is called by clients when they interact with the node.
-///   The RPC runs ON THE SERVER, which validates the hit, reduces health,
-///   grants resources to the hitter's Inventory, and despawns when depleted.
-/// ─ Clients see the health decrease via the NetworkVariable and can play
-///   visual/audio feedback locally.
+/// ─ The client is responsible only for aiming, swinging, and reporting which node
+///   it is trying to hit at the impact frame.
+/// ─ ServerApplyHit() is called BY THE SERVER after the player's gathering code
+///   has validated range, angle, line-of-sight, and equipped tool.
+/// ─ The server validates everything: tool requirement, cooldown, inventory space,
+///   then reduces health and grants resources.
 ///
 /// TOOL VALIDATION:
-/// ─ requiredToolTag is checked both client-side (in PlayerGathering, for
-///   immediate feedback) and server-side (in HitServerRpc, to prevent
-///   modified clients from bypassing the requirement).
-///
-/// EDITOR SETUP:
-/// 1. Place a tree/rock/bush GameObject in the scene.
-/// 2. Add a NetworkObject component.
-/// 3. Add this ResourceNode component.
-/// 4. Set the resourceType (e.g. "wood"), amountPerHit, maxHealth, requiredToolTag.
-/// 5. Add a Collider (e.g. CapsuleCollider for trees) so the player's raycast can hit it.
-/// 6. Since these are in-scene placed NetworkObjects, they'll be auto-synced to
-///    joining clients — no manual spawning needed.
+/// ─ requiredToolTag is checked server-side only. Set it in the Inspector for each
+///   node (e.g. "Axe" for trees). Leave it empty for hand-gatherable resources.
 /// </summary>
 [RequireComponent(typeof(NetworkObject))]
 public class ResourceNode : NetworkBehaviour
@@ -45,11 +36,11 @@ public class ResourceNode : NetworkBehaviour
     [Header("Tool Requirement")]
     [Tooltip("Tag the player's equipped tool must have to gather this resource. " +
              "Leave empty if no tool is required (e.g. fiber bushes can be gathered by hand). " +
-             "Validated BOTH client-side (for UX) and server-side (for security).")]
+             "Validated server-side.")]
     [SerializeField] private string requiredToolTag = "";
 
     [Header("Hit Cooldown")]
-    [Tooltip("Minimum seconds between hits from the same player (prevents spam-clicking).")]
+    [Tooltip("Minimum seconds between hits from the same player (prevents rapid-fire hits).")]
     [SerializeField] private float hitCooldown = 0.5f;
 
     // ───────────────────────── Networked State ─────────────────────────
@@ -60,7 +51,7 @@ public class ResourceNode : NetworkBehaviour
     /// NetworkVariable default: ServerWrite, EveryoneRead.
     /// </summary>
     public NetworkVariable<int> CurrentHealth = new NetworkVariable<int>(
-        0, // Initial value — overwritten in OnNetworkSpawn by server
+        0,
         NetworkVariableReadPermission.Everyone,
         NetworkVariableWritePermission.Server
     );
@@ -72,8 +63,7 @@ public class ResourceNode : NetworkBehaviour
     // ───────────────────────── Public Accessors ─────────────────────────
 
     /// <summary>
-    /// The tool tag required to gather this node.
-    /// Read by PlayerGathering for client-side pre-validation.
+    /// The tool tag required to gather this resource.
     /// </summary>
     public string RequiredToolTag => requiredToolTag;
 
@@ -93,8 +83,6 @@ public class ResourceNode : NetworkBehaviour
     {
         base.OnNetworkSpawn();
 
-        // Only the server sets the initial health value.
-        // Clients will receive this via NetworkVariable replication.
         if (IsServer)
         {
             CurrentHealth.Value = maxHealth;
@@ -102,7 +90,6 @@ public class ResourceNode : NetworkBehaviour
                       $"(NetworkObjectId={NetworkObjectId})");
         }
 
-        // ALL peers can subscribe to health changes for visual feedback
         CurrentHealth.OnValueChanged += OnHealthChanged;
     }
 
@@ -112,104 +99,67 @@ public class ResourceNode : NetworkBehaviour
         CurrentHealth.OnValueChanged -= OnHealthChanged;
     }
 
-    // ───────────────────────── ServerRpc — Hit Handler ─────────────────────────
+    // ───────────────────────── Server-Side Hit Application ─────────────────────────
 
     /// <summary>
-    /// Called BY CLIENTS via PlayerGathering when they interact with this node.
-    /// Runs ON THE SERVER. Validates the hit, reduces health, grants resources,
-    /// and despawns the NetworkObject if depleted.
-    ///
-    /// RequireOwnership = false because ANY client can hit any resource node
-    /// (they don't own the node — the server does for in-scene objects).
+    /// Called by PlayerGathering on the server after aim, range, angle, and
+    /// line-of-sight have been validated. This is the ONLY place that should
+    /// reduce node health or grant resources.
     /// </summary>
-    /// <param name="hitterClientId">The OwnerClientId of the player who hit this node.</param>
-    /// <param name="equippedToolTag">The tool tag the client claims to have equipped.
-    /// The server re-validates this against PlayerGathering on the server's copy.</param>
-    [ServerRpc(RequireOwnership = false)]
-    public void HitServerRpc(ulong hitterClientId, string equippedToolTag, ServerRpcParams rpcParams = default)
+    public void ServerApplyHit(ulong hitterClientId, string toolTag)
     {
-        // ── Security: verify the caller matches the claimed hitter ──
-        if (rpcParams.Receive.SenderClientId != hitterClientId)
-        {
-            Debug.LogWarning($"[ResourceNode] Client {rpcParams.Receive.SenderClientId} claimed to be " +
-                             $"client {hitterClientId} — RPC rejected (spoofed ID).");
-            return;
-        }
+        if (!IsServer) return;
 
-        // ── Check if node is already depleted ──
-        if (CurrentHealth.Value <= 0)
-        {
-            Debug.Log($"[ResourceNode] '{resourceType}' already depleted — ignoring hit from client {hitterClientId}.");
-            return;
-        }
-
-        // ── Cooldown check (prevents rapid-fire hits) ──
+        // Cooldown check
         float now = Time.time;
         if (_lastHitTime.TryGetValue(hitterClientId, out float lastTime))
         {
             if (now - lastTime < hitCooldown)
             {
-                return; // Silently ignore — too soon
+                Debug.Log($"[ResourceNode] '{resourceType}' hit ignored from client {hitterClientId} — cooldown.");
+                return;
             }
         }
         _lastHitTime[hitterClientId] = now;
 
-        // ── Server-side tool validation ──
-        // Even though the client already checked, we re-validate here
-        // to prevent modified clients from bypassing the requirement.
+        if (CurrentHealth.Value <= 0)
+        {
+            Debug.Log($"[ResourceNode] '{resourceType}' already depleted — ignoring hit.");
+            return;
+        }
+
+        // Tool requirement validation
         if (!string.IsNullOrEmpty(requiredToolTag))
         {
-            // Validate the claimed tool tag
-            if (equippedToolTag != requiredToolTag)
+            if (toolTag != requiredToolTag)
             {
                 Debug.LogWarning($"[ResourceNode] Client {hitterClientId} tried to hit '{resourceType}' " +
-                                 $"with tool '{equippedToolTag}' but requires '{requiredToolTag}' — rejected.");
+                                 $"with tool '{toolTag}' but requires '{requiredToolTag}' — rejected.");
                 return;
-            }
-
-            // Additional server-side verification: check the server's copy of
-            // the player's PlayerGathering to confirm they actually have the right tool
-            if (NetworkManager.Singleton.ConnectedClients.TryGetValue(hitterClientId, out var client))
-            {
-                var gathering = client.PlayerObject?.GetComponent<PlayerGathering>();
-                if (gathering != null && gathering.GetEquippedToolTag() != requiredToolTag)
-                {
-                    Debug.LogWarning($"[ResourceNode] Server-side tool check failed for client {hitterClientId}. " +
-                                     $"Claimed '{equippedToolTag}' but server sees '{gathering.GetEquippedToolTag()}'.");
-                    return;
-                }
             }
         }
 
-        // ── Grant resource to the hitting player's ResourceInventory ──
-        // Each player has their own ResourceInventory for raw materials.
-        // If the player's resource inventory is full, don't damage the tree.
+        // Grant resource to the hitting player's ResourceInventory
         if (NetworkManager.Singleton.ConnectedClients.TryGetValue(hitterClientId, out var hitterClient))
         {
             var resourceInv = hitterClient.PlayerObject?.GetComponent<ResourceInventory>();
-            if (resourceInv != null)
-            {
-                // AddItem returns how many were actually added (0 = rejected due to weight/full)
-                int added = resourceInv.AddItem(resourceType, amountPerHit);
-
-                if (added == 0)
-                {
-                    // Player can't carry any more — don't damage the tree
-                    Debug.Log($"[ResourceNode] '{resourceType}' hit by client {hitterClientId} " +
-                              $"but player's resource inventory is full — tree not damaged.");
-                    return;
-                }
-
-                // At least some items were added — reduce health
-                CurrentHealth.Value -= 1;
-                Debug.Log($"[ResourceNode] '{resourceType}' hit by client {hitterClientId}. " +
-                          $"Granted {added}/{amountPerHit}. Health: {CurrentHealth.Value}/{maxHealth}");
-            }
-            else
+            if (resourceInv == null)
             {
                 Debug.LogError($"[ResourceNode] Client {hitterClientId}'s player has no ResourceInventory component!");
                 return;
             }
+
+            int added = resourceInv.AddItem(resourceType, amountPerHit);
+            if (added == 0)
+            {
+                Debug.Log($"[ResourceNode] '{resourceType}' hit by client {hitterClientId} " +
+                          $"but player's resource inventory is full — node not damaged.");
+                return;
+            }
+
+            CurrentHealth.Value -= 1;
+            Debug.Log($"[ResourceNode] '{resourceType}' hit by client {hitterClientId}. " +
+                      $"Granted {added}/{amountPerHit}. Health: {CurrentHealth.Value}/{maxHealth}");
         }
         else
         {
@@ -217,15 +167,11 @@ public class ResourceNode : NetworkBehaviour
             return;
         }
 
-        // ── Despawn if depleted ──
+        // Despawn if depleted
         if (CurrentHealth.Value <= 0)
         {
             Debug.Log($"[ResourceNode] '{resourceType}' depleted — despawning NetworkObject.");
-
-            // Notify all clients before despawning (for VFX/SFX)
             OnDepletedClientRpc();
-
-            // Despawn and destroy the NetworkObject on all clients + server.
             NetworkObject.Despawn(destroy: true);
         }
     }
@@ -234,34 +180,25 @@ public class ResourceNode : NetworkBehaviour
 
     /// <summary>
     /// Sent by the server to ALL clients when the node is depleted.
-    /// Clients can use this to play destruction VFX, particles, sound, etc.
     /// </summary>
     [ClientRpc]
     private void OnDepletedClientRpc()
     {
         Debug.Log($"[ResourceNode] '{resourceType}' depleted — playing destruction feedback.");
-
-        // TODO: Play destruction particle effect
-        // TODO: Play destruction sound effect
-        // For now, we just log it. The NetworkObject despawn will handle visibility.
+        // TODO: Play destruction particle effect / sound
     }
 
     // ───────────────────────── Event Handlers ─────────────────────────
 
     /// <summary>
-    /// Called on ALL peers when CurrentHealth changes (via NetworkVariable replication).
-    /// Use for visual feedback like shaking the tree, showing damage numbers, etc.
+    /// Called on ALL peers when CurrentHealth changes.
     /// </summary>
     private void OnHealthChanged(int previousValue, int newValue)
     {
-        // Only play feedback if health decreased (not on initial spawn)
         if (newValue < previousValue && previousValue > 0)
         {
             Debug.Log($"[ResourceNode] '{resourceType}' took damage: {previousValue} → {newValue}");
-
-            // TODO: Play hit animation / shake effect
-            // TODO: Show floating damage number
-            // TODO: Play hit sound
+            // TODO: Play hit animation / shake effect / sound / floating damage number
         }
     }
 }

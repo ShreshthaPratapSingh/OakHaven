@@ -1,64 +1,67 @@
 using System.Collections;
+using Unity.Collections;
 using Unity.Netcode;
 using Unity.Netcode.Components;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 /// <summary>
-/// Handles the player's resource gathering interaction and melee attacks.
-/// Raycasts/overlaps from the player to detect ResourceNode objects and calls HitServerRpc.
+/// Handles the player's melee attacks and resource gathering.
 ///
 /// NETWORKING FLOW:
-/// ─ Input reading and raycasting happen CLIENT-SIDE (IsOwner only).
-/// ─ Client-side tool validation provides immediate feedback (no network round-trip).
-/// ─ If validation passes, we call ResourceNode.HitServerRpc(), which sends
-///   the RPC to the server for authoritative processing.
-/// ─ The server re-validates everything before granting resources.
+/// ─ Input and aim detection happen CLIENT-SIDE (IsOwner only).
+/// ─ When the player attacks, the client plays the animation and tells the server
+///   the attack started.
+/// ─ At the impact frame, the client raycasts for the resource it was actually
+///   aiming at and sends that target to the server.
+/// ─ The server validates aim, range, angle, line-of-sight, tool, and inventory,
+///   then applies damage through ResourceNode.ServerApplyHit().
 ///
 /// ATTACKS:
 /// ─ Bare hands trigger the "Punch" animation.
 /// ─ Equipping an item whose ItemDefinition.toolTag is "Axe" triggers "AxeSwing".
 /// ─ Attacks are only allowed while grounded and moving at walk speed or slower.
-/// ─ The resource hit is resolved after <see cref="gatherImpactDelay"/> seconds so it
-///   lines up with the swing's impact frame, not the button press.
 /// </summary>
 [RequireComponent(typeof(NetworkObject))]
 public class PlayerGathering : NetworkBehaviour
 {
     // ───────────────────────── Configuration ─────────────────────────
 
-    [Header("Interaction Settings")]
-    [Tooltip("Maximum distance (meters) from the player to detect resource nodes. " +
-             "Measured from the player's chest height using OverlapSphere.")]
-    [SerializeField] private float interactRange = 3f;
+    [Header("Aim & Hit")]
+    [Tooltip("Maximum distance (meters) the hit can reach from the camera center.")]
+    [FormerlySerializedAs("interactRange")]
+    [SerializeField] private float maxHitDistance = 3f;
 
-    [Tooltip("Which layers the interaction raycast can hit. " +
-             "IMPORTANT: Exclude the Player layer so the third-person camera ray " +
-             "doesn't hit the player's own collider before reaching resources.")]
-    [SerializeField] private LayerMask interactLayerMask = ~0; // Everything by default
+    [Tooltip("Radius of the sphere cast used for forgiving target selection. " +
+             "Keep small so the player has to actually aim at the node.")]
+    [SerializeField] private float hitRadius = 0.25f;
 
-    [Header("Equipped Tool")]
-    [Tooltip("For testing: set the initial tool tag the player spawns with. " +
-             "Leave empty for 'bare hands'. Set to 'Axe' to test tree gathering.")]
-    [SerializeField] private string startingToolTag = "Axe";
+    [Tooltip("Layers the aim spherecast can hit. Must include resource-node layers. " +
+             "Exclude the Player layer so the cast doesn't hit the local player.")]
+    [SerializeField] private LayerMask interactLayerMask = ~0;
 
     [Header("Attack Timing")]
     [Tooltip("Seconds into the swing/punch before the resource hit is resolved. " +
              "Tune this to the impact frame of your animation.")]
     [SerializeField] private float gatherImpactDelay = 0.35f;
 
+    [Tooltip("How long after attack start the impact RPC is still accepted by the server.")]
+    [SerializeField] private float attackWindow = 1.0f;
+
+    [Tooltip("Minimum seconds between attacks.")]
+    [SerializeField] private float attackCooldown = 0.5f;
+
     [Header("Visual Debug")]
-    [Tooltip("If true, draws a debug ray in the Scene view showing the interaction raycast.")]
+    [Tooltip("If true, draws the aim ray in the Scene view.")]
     [SerializeField] private bool debugDrawRay = true;
 
     // ───────────────────────── Networked State ─────────────────────────
 
     /// <summary>
-    /// The tag of the player's currently equipped tool.
-    /// Replicated to all peers so the server can validate tool requirements.
-    /// Only the server writes this (clients request changes via equipment changes).
+    /// Replicated tool tag used for UI/debug. The real authority is PlayerEquipment.
     /// </summary>
-    public NetworkVariable<Unity.Collections.FixedString32Bytes> EquippedToolTag =
-        new NetworkVariable<Unity.Collections.FixedString32Bytes>(
+    public NetworkVariable<FixedString32Bytes> EquippedToolTag =
+        new NetworkVariable<FixedString32Bytes>(
             default,
             NetworkVariableReadPermission.Everyone,
             NetworkVariableWritePermission.Server
@@ -79,26 +82,18 @@ public class PlayerGathering : NetworkBehaviour
     /// </summary>
     public bool IsAttacking { get; private set; }
 
+    // Server-side attack bookkeeping
+    private float _lastAttackStartTime = -1000f;
+    private float _nextAttackAllowedTime = -1000f;
+
     // ───────────────────────── Lifecycle ─────────────────────────
 
     public override void OnNetworkSpawn()
     {
         base.OnNetworkSpawn();
 
-        // Server sets the initial tool tag
-        if (IsServer)
-        {
-            if (!string.IsNullOrEmpty(startingToolTag))
-            {
-                EquippedToolTag.Value = new Unity.Collections.FixedString32Bytes(startingToolTag);
-                Debug.Log($"[PlayerGathering] Client {OwnerClientId} spawned with tool: '{startingToolTag}'");
-            }
-        }
-
-        // Only the owning client handles input and raycasting
         if (!IsOwner) return;
 
-        // FORCE-SET the layer mask to "Everything except our own layer".
         int playerLayer = gameObject.layer;
         interactLayerMask = ~(1 << playerLayer);
         Debug.Log($"[PlayerGathering] Interact LayerMask set to: {interactLayerMask.value} " +
@@ -135,22 +130,16 @@ public class PlayerGathering : NetworkBehaviour
 
     private void Update()
     {
-        // Only the local owner processes gathering input
         if (!IsOwner || _inputActions == null) return;
 
-        // Lazy-find the camera (it may not be active on the first frame)
         if (_playerCamera == null)
         {
             _playerCamera = Camera.main;
-            if (_playerCamera == null) return; // Camera not ready yet
-            Debug.Log($"[PlayerGathering] Camera found: '{_playerCamera.gameObject.name}' " +
-                      $"on '{_playerCamera.transform.root.gameObject.name}' " +
-                      $"(layer mask: {interactLayerMask.value})");
+            if (_playerCamera == null) return;
         }
 
         if (Cursor.lockState != CursorLockMode.Locked) return;
 
-        // Left mouse = attack (punch or axe swing)
         if (_inputActions.Player.Attack.WasPressedThisFrame())
         {
             if (CanAttack())
@@ -162,7 +151,6 @@ public class PlayerGathering : NetworkBehaviour
 
     /// <summary>
     /// Attacks are only allowed while grounded and at walk speed or slower.
-    /// This mirrors the Animator transition conditions on the UpperBody layer.
     /// </summary>
     private bool CanAttack()
     {
@@ -177,24 +165,20 @@ public class PlayerGathering : NetworkBehaviour
 
     /// <summary>
     /// Returns true if the player is holding an item tagged as an Axe.
-    /// Falls back to the legacy EquippedToolTag for test setups.
     /// </summary>
     private bool ShouldUseAxeSwing()
     {
         if (_equipment != null && !string.IsNullOrEmpty(_equipment.EquippedItemId))
         {
             ItemDefinition def = ItemDatabase.GetItem(_equipment.EquippedItemId);
-            if (def != null && def.toolTag == "Axe")
-                return true;
-
-            return false;
+            return def != null && def.toolTag == "Axe";
         }
 
-        return EquippedToolTag.Value.ToString() == "Axe";
+        return false;
     }
 
     /// <summary>
-    /// Begins an attack: plays the correct animation and schedules the resource hit.
+    /// Begins an attack: plays the animation, notifies the server, and schedules the hit.
     /// </summary>
     private void StartAttack()
     {
@@ -212,10 +196,12 @@ public class PlayerGathering : NetworkBehaviour
         else if (_animator != null)
             _animator.SetTrigger(trigger);
 
+        StartAttackServerRpc();
+
         if (_attackRoutine != null) StopCoroutine(_attackRoutine);
         _attackRoutine = StartCoroutine(AttackDuration());
 
-        StartCoroutine(DelayedGather());
+        StartCoroutine(DelayedHit());
     }
 
     private bool HasTriggerParameter(string name)
@@ -235,11 +221,8 @@ public class PlayerGathering : NetworkBehaviour
     private IEnumerator AttackDuration()
     {
         IsAttacking = true;
-
-        // Wait one frame for the Animator to start the transition
         yield return null;
 
-        // Give the Animator a short window to actually enter the attack state
         float entryTimeout = 0.5f;
         while (_animator != null && entryTimeout > 0f)
         {
@@ -251,7 +234,6 @@ public class PlayerGathering : NetworkBehaviour
             yield return null;
         }
 
-        // Poll until the attack animation finishes
         const float timeout = 3f;
         float elapsed = 0f;
 
@@ -267,7 +249,6 @@ public class PlayerGathering : NetworkBehaviour
             }
             else
             {
-                // Left the attack state (finished or interrupted)
                 break;
             }
 
@@ -279,121 +260,176 @@ public class PlayerGathering : NetworkBehaviour
     }
 
     /// <summary>
-    /// Waits for the swing to reach its impact frame before resolving the gather.
+    /// Waits for the swing to reach its impact frame, then raycasts for the
+    /// actually-aimed-at resource and sends it to the server.
     /// </summary>
-    private IEnumerator DelayedGather()
+    private IEnumerator DelayedHit()
     {
         yield return new WaitForSeconds(gatherImpactDelay);
-        TryGather();
-    }
 
-    // ───────────────────────── Gathering Logic ─────────────────────────
+        if (_playerCamera == null) yield break;
 
-    /// <summary>
-    /// Performs an overlap check around the player for a ResourceNode,
-    /// validates tool requirements CLIENT-SIDE, then sends the hit to the server.
-    ///
-    /// CLIENT-SIDE ONLY — called from a coroutine started in Update() which only runs on IsOwner.
-    /// </summary>
-    private void TryGather()
-    {
-        Vector3 playerPos = transform.position + Vector3.up * 1f; // ~chest height
-
-        // Find all colliders within gather range of the player
-        Collider[] hits = Physics.OverlapSphere(playerPos, interactRange, interactLayerMask);
+        // Aim from the player's chest using the camera's forward direction.
+        // Using the camera position fails in third-person because the camera is
+        // behind the player, so a nearby tree can be beyond maxHitDistance.
+        Vector3 origin = transform.position + Vector3.up * 1.5f;
+        Vector3 direction = _playerCamera.transform.forward;
 
         if (debugDrawRay)
         {
-            Debug.DrawRay(playerPos, Vector3.up * interactRange, Color.yellow, 0.5f);
-            Debug.DrawRay(playerPos, Vector3.forward * interactRange, Color.yellow, 0.5f);
-            Debug.DrawRay(playerPos, Vector3.right * interactRange, Color.yellow, 0.5f);
+            Debug.DrawRay(origin, direction * maxHitDistance, Color.yellow, 0.5f);
         }
 
-        ResourceNode closestNode = null;
-        float closestDist = float.MaxValue;
-
-        foreach (Collider col in hits)
+        if (!Physics.SphereCast(origin, hitRadius, direction, out RaycastHit hit,
+                                maxHitDistance, interactLayerMask, QueryTriggerInteraction.Collide))
         {
-            ResourceNode node = col.GetComponentInParent<ResourceNode>();
-            if (node == null) continue;
-
-            if (node.CurrentHealth.Value <= 0) continue;
-
-            float dist = Vector3.Distance(playerPos, col.ClosestPoint(playerPos));
             if (debugDrawRay)
-            {
-                Debug.Log($"[PlayerGathering] Found '{node.ResourceType}' at distance {dist:F2}m " +
-                          $"(object: '{col.gameObject.name}', layer: {LayerMask.LayerToName(col.gameObject.layer)})");
-            }
-
-            if (dist < closestDist)
-            {
-                closestDist = dist;
-                closestNode = node;
-            }
+                Debug.Log("[PlayerGathering] SphereCast hit nothing.");
+            yield break;
         }
 
-        if (closestNode == null)
+        ResourceNode node = hit.collider.GetComponentInParent<ResourceNode>();
+        if (node == null)
         {
             if (debugDrawRay)
-            {
-                Debug.Log($"[PlayerGathering] No ResourceNode within {interactRange}m of player. " +
-                          $"(OverlapSphere found {hits.Length} colliders total, " +
-                          $"playerPos: {playerPos}, mask: {interactLayerMask.value})");
-            }
+                Debug.Log($"[PlayerGathering] Hit '{hit.collider.name}' but it is not a ResourceNode.");
+            yield break;
+        }
+
+        if (node.CurrentHealth.Value <= 0)
+        {
+            if (debugDrawRay)
+                Debug.Log($"[PlayerGathering] Target '{node.ResourceType}' is already depleted.");
+            yield break;
+        }
+
+        if (debugDrawRay)
+        {
+            Debug.DrawLine(origin, hit.point, Color.green, 0.5f);
+            Debug.Log($"[PlayerGathering] Aimed at '{node.ResourceType}' at {hit.distance:F2}m.");
+        }
+
+        AttackTargetServerRpc(node.NetworkObjectId, direction);
+    }
+
+    // ───────────────────────── ServerRpcs (Server Validates Everything) ─────────────────────────
+
+    /// <summary>
+    /// Called by the owning client when an attack starts. The server records the
+    /// attack window so impact RPCs outside that window are rejected.
+    /// </summary>
+    [ServerRpc]
+    private void StartAttackServerRpc(ServerRpcParams rpcParams = default)
+    {
+        if (rpcParams.Receive.SenderClientId != OwnerClientId)
+        {
+            Debug.LogWarning($"[PlayerGathering] Client {rpcParams.Receive.SenderClientId} tried to start an attack " +
+                             $"on client {OwnerClientId}'s player — rejected.");
             return;
         }
 
-        if (debugDrawRay)
+        if (Time.time < _nextAttackAllowedTime)
         {
-            Debug.DrawLine(playerPos, closestNode.transform.position, Color.green, 1f);
+            Debug.Log($"[PlayerGathering] Client {OwnerClientId} attack rejected — cooldown.");
+            return;
         }
 
-        // Client-side tool validation (for responsiveness)
-        string myToolTag = EquippedToolTag.Value.ToString();
-        if (!string.IsNullOrEmpty(closestNode.RequiredToolTag))
+        _lastAttackStartTime = Time.time;
+        _nextAttackAllowedTime = Time.time + attackCooldown;
+    }
+
+    /// <summary>
+    /// Called by the owning client at the attack impact frame. The server validates
+    /// the claimed target and, if everything checks out, tells that node to apply the hit.
+    /// </summary>
+    [ServerRpc]
+    private void AttackTargetServerRpc(ulong targetNetworkObjectId, Vector3 cameraForward,
+                                       ServerRpcParams rpcParams = default)
+    {
+        if (rpcParams.Receive.SenderClientId != OwnerClientId)
         {
-            if (myToolTag != closestNode.RequiredToolTag)
+            Debug.LogWarning($"[PlayerGathering] Client {rpcParams.Receive.SenderClientId} tried to hit a target " +
+                             $"on client {OwnerClientId}'s player — rejected.");
+            return;
+        }
+
+        if (Time.time - _lastAttackStartTime > attackWindow)
+        {
+            Debug.LogWarning($"[PlayerGathering] Client {OwnerClientId} impact rejected — outside attack window.");
+            return;
+        }
+
+        if (!NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(targetNetworkObjectId, out NetworkObject netObj))
+        {
+            Debug.LogWarning($"[PlayerGathering] Client {OwnerClientId} targeted an unknown NetworkObject.");
+            return;
+        }
+
+        ResourceNode node = netObj.GetComponent<ResourceNode>();
+        if (node == null)
+        {
+            Debug.LogWarning($"[PlayerGathering] Client {OwnerClientId} target is not a ResourceNode.");
+            return;
+        }
+
+        if (node.CurrentHealth.Value <= 0)
+        {
+            Debug.Log($"[PlayerGathering] Client {OwnerClientId} target is already depleted.");
+            return;
+        }
+
+        // Range and angle validation
+        Vector3 playerPos = transform.position + Vector3.up * 1f;
+        Collider nodeCol = node.GetComponent<Collider>() ?? node.GetComponentInChildren<Collider>();
+        if (nodeCol == null)
+        {
+            Debug.LogWarning($"[PlayerGathering] Target ResourceNode has no collider.");
+            return;
+        }
+
+        Vector3 closestPoint = nodeCol.ClosestPoint(playerPos);
+        float distance = Vector3.Distance(playerPos, closestPoint);
+        if (distance > maxHitDistance + 0.5f)
+        {
+            Debug.LogWarning($"[PlayerGathering] Client {OwnerClientId} target is too far ({distance:F2}m).");
+            return;
+        }
+
+        Vector3 toTarget = (closestPoint - playerPos).normalized;
+        cameraForward.Normalize();
+        if (Vector3.Dot(cameraForward, toTarget) < 0.5f)
+        {
+            Debug.LogWarning($"[PlayerGathering] Client {OwnerClientId} target is outside aim cone.");
+            return;
+        }
+
+        // Line-of-sight validation (ignore the player's own collider)
+        int mask = ~(1 << gameObject.layer);
+        if (Physics.Raycast(playerPos, toTarget, out RaycastHit hit, distance, mask, QueryTriggerInteraction.Collide))
+        {
+            if (hit.collider.GetComponentInParent<ResourceNode>() != node)
             {
-                Debug.Log($"[PlayerGathering] Can't gather '{closestNode.ResourceType}' — " +
-                          $"requires '{closestNode.RequiredToolTag}' but equipped '{myToolTag}'.");
+                Debug.LogWarning($"[PlayerGathering] Client {OwnerClientId} target is blocked by '{hit.collider.name}'.");
                 return;
             }
         }
 
-        Debug.Log($"[PlayerGathering] Hitting '{closestNode.ResourceType}' " +
-                  $"(health: {closestNode.CurrentHealth.Value}/{closestNode.MaxHealth}, " +
-                  $"distance: {closestDist:F2}m)");
-
-        closestNode.HitServerRpc(NetworkManager.Singleton.LocalClientId, myToolTag);
-    }
-
-    // ───────────────────────── Tool Management ─────────────────────────
-
-    /// <summary>
-    /// Returns the currently equipped tool tag.
-    /// Used by ResourceNode on the server to verify the client's tool.
-    /// </summary>
-    public string GetEquippedToolTag()
-    {
-        return EquippedToolTag.Value.ToString();
-    }
-
-    /// <summary>
-    /// Client requests to change their equipped tool.
-    /// Kept for compatibility; in normal gameplay the equipment system drives this value.
-    /// </summary>
-    [ServerRpc]
-    public void EquipToolServerRpc(string toolTag, ServerRpcParams rpcParams = default)
-    {
-        if (rpcParams.Receive.SenderClientId != OwnerClientId)
+        // Derive the real equipped tool tag from the authoritative equipment state
+        string toolTag = "";
+        PlayerEquipment equipment = GetComponent<PlayerEquipment>();
+        if (equipment != null && !string.IsNullOrEmpty(equipment.EquippedItemId))
         {
-            Debug.LogWarning($"[PlayerGathering] Client {rpcParams.Receive.SenderClientId} " +
-                             $"tried to change tool on client {OwnerClientId}'s player!");
+            ItemDefinition def = ItemDatabase.GetItem(equipment.EquippedItemId);
+            if (def != null)
+                toolTag = def.toolTag;
+        }
+
+        if (string.IsNullOrEmpty(toolTag) && !string.IsNullOrEmpty(node.RequiredToolTag))
+        {
+            Debug.Log($"[PlayerGathering] Client {OwnerClientId} has no tool but node requires '{node.RequiredToolTag}'.");
             return;
         }
 
-        EquippedToolTag.Value = new Unity.Collections.FixedString32Bytes(toolTag);
-        Debug.Log($"[PlayerGathering] Client {OwnerClientId} equipped tool: '{toolTag}'");
+        node.ServerApplyHit(OwnerClientId, toolTag);
     }
 }

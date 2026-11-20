@@ -228,7 +228,7 @@ MonoBehaviour:
   resourceType: wood
   amountPerHit: 1
   maxHealth: 5
-  requiredToolTag: 
+  requiredToolTag: Axe
   hitCooldown: 0.5
   CurrentHealth:
     UpdateTraits:
