@@ -312,6 +312,24 @@ public class PlayerController : NetworkBehaviour
         _cc.Move(_velocity * Time.deltaTime);
     }
 
+    // ───────────────────────── Visual Swapping ─────────────────────────
+
+    /// <summary>
+    /// Updates the visual model reference after PlayerCharacterAppearance swaps the character.
+    /// </summary>
+    public void SetPlayerModel(Transform model)
+    {
+        playerModel = model;
+    }
+
+    /// <summary>
+    /// Updates the Animator reference after the character visual is swapped.
+    /// </summary>
+    public void SetAnimator(Animator animator)
+    {
+        _animator = animator;
+    }
+
     // ───────────────────────── Safety ─────────────────────────
 
     /// <summary>
