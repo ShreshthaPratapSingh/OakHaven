@@ -330,6 +330,28 @@ public class PlayerEquipment : NetworkBehaviour
         _heldInstance = Instantiate(def.equippedPrefab, handSocket, false);
     }
 
+    // ───────────────────────── Visual Swapping ─────────────────────────
+
+    /// <summary>
+    /// Updates the hand socket after PlayerCharacterAppearance swaps the character model.
+    /// Re-attaches any currently equipped item.
+    /// </summary>
+    public void SetHandSocket(Transform socket)
+    {
+        handSocket = socket;
+        ApplyEquippedState(EquippedItemId);
+    }
+
+    /// <summary>
+    /// Updates the Animator reference after the character visual is swapped.
+    /// Re-applies the current equipment pose.
+    /// </summary>
+    public void SetAnimator(Animator animator)
+    {
+        _animator = animator;
+        ApplyEquippedState(EquippedItemId);
+    }
+
     /// <summary>
     /// Returns true if the given item id is an axe.
     /// </summary>

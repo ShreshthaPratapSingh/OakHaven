@@ -13,6 +13,11 @@ using TMPro;
 /// Manages Unity Relay allocation and NGO host/client startup.
 /// Attach this to the same GameObject as NetworkManager (or any scene object).
 /// Wire the UI buttons and input field in the Inspector.
+///
+/// CHARACTER SELECTION NOTE:
+/// This script no longer immediately spawns the player. It only creates/joins the
+/// Relay session and starts NGO. CharacterSelectionManager then waits for the
+/// player to choose a character and spawns the player object manually.
 /// </summary>
 public class RelayManager : MonoBehaviour
 {
@@ -30,6 +35,9 @@ public class RelayManager : MonoBehaviour
     [SerializeField] private Vector3 spawnPosition = new Vector3(625.08f, 4.5f, 436.94f);
     [SerializeField] private Vector3 spawnRotation = new Vector3(0f, 180f, 0f);
 
+    public Vector3 SpawnPosition => spawnPosition;
+    public Quaternion SpawnRotation => Quaternion.Euler(spawnRotation);
+
     private string _joinCode;
 
     // ───────────────────────── Lifecycle ─────────────────────────
@@ -38,11 +46,7 @@ public class RelayManager : MonoBehaviour
 
     private void Awake()
     {
-        // Wire buttons immediately — don't wait for auth
-        if (hostButton != null)  hostButton.onClick.AddListener(() => CreateRelay());
-        if (joinButton != null)  joinButton.onClick.AddListener(() => JoinRelay(joinCodeInputField.text));
-
-        Debug.Log("[RelayManager] Awake — buttons wired. hostButton=" + (hostButton != null) +
+        Debug.Log("[RelayManager] Awake — hostButton=" + (hostButton != null) +
                   " joinButton=" + (joinButton != null) + " statusText=" + (statusText != null));
     }
 
@@ -71,43 +75,70 @@ public class RelayManager : MonoBehaviour
             SetStatus("Auth failed: " + e.Message);
             Debug.LogError("[RelayManager] Authentication failed:\n" + e);
         }
+
+        // Runtime fallback: make sure the menu buttons drive the character selection UI
+        // even if the scene's persistent UnityEvent listeners were lost.
+        WireButtonsToCharacterSelectionUI();
+    }
+
+    private void WireButtonsToCharacterSelectionUI()
+    {
+        CharacterSelectionUI ui = FindFirstObjectByType<CharacterSelectionUI>();
+        if (ui == null)
+        {
+            Debug.LogWarning("[RelayManager] No CharacterSelectionUI found in scene. Host/Join buttons may not work.");
+            return;
+        }
+
+        if (hostButton != null)
+        {
+            hostButton.onClick.RemoveAllListeners();
+            hostButton.onClick.AddListener(ui.OnHostClicked);
+            Debug.Log("[RelayManager] HostButton wired to CharacterSelectionUI.OnHostClicked at runtime.");
+        }
+
+        if (joinButton != null)
+        {
+            joinButton.onClick.RemoveAllListeners();
+            joinButton.onClick.AddListener(ui.OnJoinClicked);
+            Debug.Log("[RelayManager] JoinButton wired to CharacterSelectionUI.OnJoinClicked at runtime.");
+        }
     }
 
     // ───────────────────────── Host (Create Relay) ─────────────────────────
 
     /// <summary>
     /// Allocates a Relay server, obtains a join code, configures UnityTransport,
-    /// and starts NGO as a Host.
+    /// and starts NGO as a Host. Player spawning is deferred to CharacterSelectionManager.
     /// </summary>
-    public async void CreateRelay()
+    public async void StartHostFlow()
     {
+        if (!_isSignedIn)
+        {
+            SetStatus("Not signed in yet.");
+            Debug.LogWarning("[RelayManager] Cannot host — not signed in.");
+            return;
+        }
+
         try
         {
             SetStatus("Creating relay...");
             Debug.Log("[RelayManager] Creating relay allocation...");
 
-            // 1. Create a Relay allocation
             Allocation allocation = await RelayService.Instance.CreateAllocationAsync(maxConnections);
-
-            // 2. Get the join code so other players can connect
             _joinCode = await RelayService.Instance.GetJoinCodeAsync(allocation.AllocationId);
             Debug.Log("[RelayManager] Join Code: " + _joinCode);
 
-            // 3. Configure UnityTransport with the relay server data (DTLS encryption)
-            //    Uses the ToRelayServerData() extension method from the Multiplayer SDK
             var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
             transport.SetRelayServerData(allocation.ToRelayServerData("dtls"));
 
-            // 4. Enable connection approval so we can control spawn position
             ConfigureConnectionApproval();
 
-            // 5. Start as Host
             NetworkManager.Singleton.StartHost();
 
             SetStatus("Hosting! Join Code: " + _joinCode);
             Debug.Log("[RelayManager] Host started. Share this join code: " + _joinCode);
 
-            // Disable buttons after connecting
             SetButtonsInteractable(false);
         }
         catch (RelayServiceException e)
@@ -118,7 +149,7 @@ public class RelayManager : MonoBehaviour
         catch (Exception e)
         {
             SetStatus("Error: " + e.Message);
-            Debug.LogError("[RelayManager] CreateRelay failed: " + e);
+            Debug.LogError("[RelayManager] StartHostFlow failed: " + e);
         }
     }
 
@@ -127,9 +158,17 @@ public class RelayManager : MonoBehaviour
     /// <summary>
     /// Joins an existing Relay allocation using the provided join code,
     /// configures UnityTransport, and starts NGO as a Client.
+    /// Player spawning is deferred to CharacterSelectionManager.
     /// </summary>
-    public async void JoinRelay(string joinCode)
+    public async void StartClientFlow(string joinCode)
     {
+        if (!_isSignedIn)
+        {
+            SetStatus("Not signed in yet.");
+            Debug.LogWarning("[RelayManager] Cannot join — not signed in.");
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(joinCode))
         {
             SetStatus("Please enter a join code.");
@@ -142,24 +181,18 @@ public class RelayManager : MonoBehaviour
             SetStatus("Joining relay...");
             Debug.Log("[RelayManager] Joining relay with code: " + joinCode);
 
-            // 1. Join the allocation
             JoinAllocation joinAllocation = await RelayService.Instance.JoinAllocationAsync(joinCode);
 
-            // 2. Configure UnityTransport with the relay server data (DTLS encryption)
-            //    Uses the ToRelayServerData() extension method from the Multiplayer SDK
             var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
             transport.SetRelayServerData(joinAllocation.ToRelayServerData("dtls"));
 
-            // 3. Enable connection approval (must match host config)
             ConfigureConnectionApproval();
 
-            // 4. Start as Client
             NetworkManager.Singleton.StartClient();
 
             SetStatus("Connected as client!");
             Debug.Log("[RelayManager] Client started. Connected via Relay.");
 
-            // Disable buttons after connecting
             SetButtonsInteractable(false);
         }
         catch (RelayServiceException e)
@@ -170,7 +203,7 @@ public class RelayManager : MonoBehaviour
         catch (Exception e)
         {
             SetStatus("Error: " + e.Message);
-            Debug.LogError("[RelayManager] JoinRelay failed: " + e);
+            Debug.LogError("[RelayManager] StartClientFlow failed: " + e);
         }
     }
 
@@ -178,7 +211,8 @@ public class RelayManager : MonoBehaviour
 
     /// <summary>
     /// Configures the NetworkManager to use connection approval so we can
-    /// set the spawn position/rotation for each player.
+    /// set the player's spawn position/rotation, but we defer player object creation
+    /// until CharacterSelectionManager confirms a character choice.
     /// </summary>
     private void ConfigureConnectionApproval()
     {
@@ -189,19 +223,21 @@ public class RelayManager : MonoBehaviour
 
     /// <summary>
     /// Called on the server/host for each incoming connection.
-    /// Approves the connection and sets the player's spawn position.
+    /// Approves the connection and stores the spawn position, but does NOT
+    /// auto-create the player object. CharacterSelectionManager spawns it later.
     /// </summary>
     private void OnConnectionApproval(
         NetworkManager.ConnectionApprovalRequest request,
         NetworkManager.ConnectionApprovalResponse response)
     {
         response.Approved = true;
-        response.CreatePlayerObject = true;
+        response.CreatePlayerObject = false;
         response.Position = spawnPosition;
         response.Rotation = Quaternion.Euler(spawnRotation);
+        response.Pending = false;
 
         Debug.Log("[RelayManager] Approved connection for client " + request.ClientNetworkId +
-                  " — spawning at " + spawnPosition);
+                  " — player spawn deferred to character selection.");
     }
 
     // ───────────────────────── Helpers ─────────────────────────
