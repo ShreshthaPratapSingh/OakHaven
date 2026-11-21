@@ -40,6 +40,9 @@ public class PlayerInteractor : NetworkBehaviour
     private GameObject _promptRoot;
     private TextMesh _promptText;
 
+    // Cached interaction ranges for the two pickup types.
+    private const float WorldItemDropDefaultRange = 1.8f;
+
     public override void OnNetworkSpawn()
     {
         base.OnNetworkSpawn();
@@ -109,6 +112,10 @@ public class PlayerInteractor : NetworkBehaviour
             {
                 pickup.RequestPickupServerRpc();
             }
+            else if (_currentTarget is WorldItemDrop drop)
+            {
+                drop.RequestPickupServerRpc();
+            }
             else if (_currentTarget is Workstation)
             {
                 _crafting.OpenCurrentWorkstation();
@@ -130,7 +137,7 @@ public class PlayerInteractor : NetworkBehaviour
 
         foreach (Collider col in hits)
         {
-            // Pickups
+            // Static world pickups
             WorldPickup pickup = col.GetComponentInParent<WorldPickup>();
             if (pickup != null && IsValidTarget(pickup.transform, pickup.InteractionRange, origin, out float pickupDist))
             {
@@ -138,6 +145,17 @@ public class PlayerInteractor : NetworkBehaviour
                 {
                     bestDist = pickupDist;
                     best = pickup;
+                }
+            }
+
+            // Dropped items from players
+            WorldItemDrop drop = col.GetComponentInParent<WorldItemDrop>();
+            if (drop != null && IsValidTarget(drop.transform, drop.InteractionRange, origin, out float dropDist))
+            {
+                if (dropDist < bestDist)
+                {
+                    bestDist = dropDist;
+                    best = drop;
                 }
             }
 
@@ -186,6 +204,13 @@ public class PlayerInteractor : NetworkBehaviour
             ItemDefinition def = ItemDatabase.GetItem(pickup.ItemId);
             string name = def != null ? def.displayName : pickup.ItemId;
             return $"E - Pick up {name}";
+        }
+
+        if (target is WorldItemDrop drop)
+        {
+            ItemDefinition def = ItemDatabase.GetItem(drop.ItemId);
+            string name = def != null ? def.displayName : drop.ItemId;
+            return $"E - Pick up {name} x{drop.Quantity}";
         }
 
         if (target is Workstation ws)

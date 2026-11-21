@@ -22922,8 +22922,7 @@ MonoBehaviour:
   slotPrefab: {fileID: 1029273779366671302, guid: 51be4a030d254b0408e962a164658043, type: 3}
   toggleKey: 9
   emptySlotSprite: {fileID: 4446041084236756038, guid: fb1c023de616bbe48ae8b85ad43b0494, type: 3}
-  resourceSlotCount: 10
-  equipmentSlotCount: 10
+  dragIconFallback: {fileID: 0}
   weightBarSlider: {fileID: 1693113522}
   weightText: {fileID: 1568576616}
   weightBarNormalColor: {r: 0.3, g: 0.8, b: 0.4, a: 1}

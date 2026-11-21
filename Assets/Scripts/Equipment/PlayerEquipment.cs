@@ -58,6 +58,9 @@ public class PlayerEquipment : NetworkBehaviour
     /// <summary>The locally instantiated visual. Cosmetic only.</summary>
     private GameObject _heldInstance;
 
+    /// <summary>Item id of the visual currently held in the hand socket.</summary>
+    private string _currentEquippedItemId = "";
+
     /// <summary>The player's equipment inventory (tools live there, not in ResourceInventory).</summary>
     private Inventory _equipment;
 
@@ -92,7 +95,8 @@ public class PlayerEquipment : NetworkBehaviour
         // OnValueChanged only fires on CHANGES — a late-joining client (or a
         // respawn) never receives an event for state that already exists,
         // so apply the current value once here.
-        UpdateHeldVisual();
+        _currentEquippedItemId = EquippedItemId;
+        ApplyEquippedState(EquippedItemId);
     }
 
     public override void OnNetworkDespawn()
@@ -123,6 +127,11 @@ public class PlayerEquipment : NetworkBehaviour
             string candidate = FindFirstEquippableItemId();
             if (candidate != null)
             {
+                // Predict the animation change locally so the player doesn't wait
+                // for the server round-trip before the pose updates.
+                if (_animator != null)
+                    _animator.SetBool("AxeEquipped", IsAxe(candidate));
+
                 EquipServerRpc(candidate);
             }
             else
@@ -132,6 +141,10 @@ public class PlayerEquipment : NetworkBehaviour
         }
         else
         {
+            // Predict the unequip animation locally.
+            if (_animator != null)
+                _animator.SetBool("AxeEquipped", false);
+
             UnequipServerRpc();
         }
     }
@@ -184,6 +197,7 @@ public class PlayerEquipment : NetworkBehaviour
         {
             Debug.LogWarning($"[Equipment] Equip request for '{itemId}' rejected — " +
                              "not in equipment inventory.");
+            SyncEquipmentStateClientRpc(_equippedItemId.Value.ToString());
             return;
         }
 
@@ -192,6 +206,7 @@ public class PlayerEquipment : NetworkBehaviour
         {
             Debug.LogWarning($"[Equipment] Equip request for '{itemId}' rejected — " +
                              "unknown id or no equippedPrefab assigned.");
+            SyncEquipmentStateClientRpc(_equippedItemId.Value.ToString());
             return;
         }
 
@@ -208,12 +223,30 @@ public class PlayerEquipment : NetworkBehaviour
         {
             Debug.LogWarning($"[Equipment] Client {rpcParams.Receive.SenderClientId} tried to unequip " +
                              $"client {OwnerClientId}'s player — rejected!");
+            SyncEquipmentStateClientRpc(_equippedItemId.Value.ToString());
+            return;
+        }
+
+        if (_equippedItemId.Value.IsEmpty)
+        {
+            SyncEquipmentStateClientRpc(_equippedItemId.Value.ToString());
             return;
         }
 
         _equippedItemId.Value = default;
         SyncGatheringToolTag("");
         Debug.Log($"[Equipment] Client {OwnerClientId} unequipped.");
+    }
+
+    /// <summary>
+    /// Sent by the server when an equip/unequip request is rejected.
+    /// Forces the owning client back to the server's authoritative state.
+    /// </summary>
+    [ClientRpc]
+    private void SyncEquipmentStateClientRpc(string itemId)
+    {
+        if (!IsOwner) return;
+        ApplyEquippedState(itemId);
     }
 
     /// <summary>
@@ -251,32 +284,36 @@ public class PlayerEquipment : NetworkBehaviour
     /// </summary>
     private void UpdateHeldVisual()
     {
+        ApplyEquippedState(_equippedItemId.Value.ToString());
+    }
+
+    /// <summary>
+    /// Applies the equipped visual and animator bool for the given item id.
+    /// Idempotent: calling it with the same id twice does not destroy/recreate the visual.
+    /// </summary>
+    private void ApplyEquippedState(string itemId)
+    {
+        // Refresh the bool even if the visual is unchanged (e.g. after local prediction).
+        if (_animator != null)
+            _animator.SetBool("AxeEquipped", IsAxe(itemId));
+
+        if (_currentEquippedItemId == itemId)
+            return;
+
         if (_heldInstance != null)
         {
             Destroy(_heldInstance);
             _heldInstance = null;
         }
 
-        string id = _equippedItemId.Value.ToString();
+        _currentEquippedItemId = itemId;
 
-        bool axeEquipped = false;
-        ItemDefinition def = null;
-        if (!string.IsNullOrEmpty(id))
-        {
-            def = ItemDatabase.GetItem(id);
-            axeEquipped = def != null && def.toolTag == "Axe";
-        }
+        if (string.IsNullOrEmpty(itemId)) return;
 
-        if (_animator != null)
-        {
-            _animator.SetBool("AxeEquipped", axeEquipped);
-        }
-
-        if (string.IsNullOrEmpty(id)) return;   // nothing equipped
-
+        ItemDefinition def = ItemDatabase.GetItem(itemId);
         if (def == null || def.equippedPrefab == null)
         {
-            Debug.LogWarning($"[Equipment] No equippedPrefab for '{id}' — " +
+            Debug.LogWarning($"[Equipment] No equippedPrefab for '{itemId}' — " +
                              "check the ItemDef and that ItemDatabaseLoader is in the scene.");
             return;
         }
@@ -291,5 +328,15 @@ public class PlayerEquipment : NetworkBehaviour
         // worldPositionStays = false: the prefab's pivot is authored AT the
         // grip (Phase 0), so it lands exactly on the socket with zero offset.
         _heldInstance = Instantiate(def.equippedPrefab, handSocket, false);
+    }
+
+    /// <summary>
+    /// Returns true if the given item id is an axe.
+    /// </summary>
+    private static bool IsAxe(string itemId)
+    {
+        if (string.IsNullOrEmpty(itemId)) return false;
+        ItemDefinition def = ItemDatabase.GetItem(itemId);
+        return def != null && def.toolTag == "Axe";
     }
 }

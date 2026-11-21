@@ -20,3 +20,4 @@ MonoBehaviour:
   category: Resource
   toolTag: 
   equippedPrefab: {fileID: 0}
+  dropPrefab: {fileID: 6034067926988723273, guid: a29b2530dded2ad4db96d54c77d7df7c, type: 3}

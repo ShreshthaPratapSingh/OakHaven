@@ -1,19 +1,25 @@
 using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.EventSystems;
 using TMPro;
 using System.Collections.Generic;
 
 /// <summary>
-/// Client-side UI that displays the local player's inventory.
-/// Subscribes to the Inventory's NetworkList.OnListChanged event and
-/// rebuilds displayed slots whenever the server replicates a change.
+/// Client-side UI that displays the local player's inventory and handles input.
+/// Subscribes to both Inventory (equipment) and ResourceInventory NetworkLists
+/// and rebuilds displayed slots whenever the server replicates a change.
 ///
 /// NETWORKING RULES:
 /// ─ This script NEVER modifies the NetworkList directly.
-/// ─ It is purely a READER / DISPLAY layer.
-/// ─ Any player actions (drop, use, etc.) trigger ServerRpcs on the Inventory.
-/// ─ The UI rebuilds automatically when the server makes changes.
+/// ─ Player actions (move, drop, split) are sent as ServerRpcs on the inventory.
+/// ─ The server validates everything, mutates state, and the UI rebuilds automatically.
+///
+/// INTERACTIONS:
+/// ─ Left-click drag a stack onto another slot: move / swap / merge (server-decided).
+/// ─ Right-click a slot: drop one item.
+/// ─ Shift + Right-click a slot: drop the full stack.
+/// ─ Middle-click a slot: split the stack into the first empty slot.
 ///
 /// EDITOR SETUP:
 /// 1. Add this component to a Canvas in your scene.
@@ -47,11 +53,9 @@ public class InventoryUI : MonoBehaviour
     [Tooltip("Sprite to show in empty/unused slots. Leave null for no empty slots.")]
     [SerializeField] private Sprite emptySlotSprite;
 
-    [Tooltip("Number of resource slots to display (includes empty ones).")]
-    [SerializeField] private int resourceSlotCount = 10;
-
-    [Tooltip("Number of equipment slots to display (includes empty ones).")]
-    [SerializeField] private int equipmentSlotCount = 10;
+    [Header("Drag Visual")]
+    [Tooltip("Fallback sprite shown while dragging an item. If null, the slot's own icon is used.")]
+    [SerializeField] private Sprite dragIconFallback;
 
     [Header("Weight Display")]
     [Tooltip("Slider showing current weight as a fraction of max carry weight. " +
@@ -75,6 +79,7 @@ public class InventoryUI : MonoBehaviour
 
     private Inventory _localInventory;          // Equipment (tools, weapons)
     private ResourceInventory _localResources;  // Raw materials (wood, stone, fiber)
+    private PlayerCarryCapacity _localCarryCapacity; // Shared combined carry limit
     private bool _isSubscribed;
     private Transform _slotContainer;           // Original grid (kept as reference)
     private Transform _resourceContainer;       // Programmatically created resource grid
@@ -82,10 +87,17 @@ public class InventoryUI : MonoBehaviour
     private readonly List<GameObject> _slotInstances = new List<GameObject>();
     private readonly List<GameObject> _sectionObjects = new List<GameObject>(); // Labels + containers
 
+    private Canvas _canvas;
+    private InventorySlotUI _dragSource;
+    private GameObject _dragIcon;
+    private RectTransform _dragIconRect;
+
     // ───────────────────────── Lifecycle ─────────────────────────
 
     private void Start()
     {
+        _canvas = GetComponentInParent<Canvas>();
+
         if (inventoryPanel != null)
         {
             inventoryPanel.SetActive(false);
@@ -189,12 +201,12 @@ public class InventoryUI : MonoBehaviour
         RectTransform headerRect = headerObj.AddComponent<RectTransform>();
         headerRect.sizeDelta = new Vector2(0, 24);
 
-        var tmpText = headerObj.AddComponent<TMPro.TextMeshProUGUI>();
+        var tmpText = headerObj.AddComponent<TextMeshProUGUI>();
         tmpText.text = label.ToUpper();
         tmpText.fontSize = 24;
-        tmpText.fontStyle = TMPro.FontStyles.Bold;
+        tmpText.fontStyle = FontStyles.Bold;
         tmpText.color = new Color(0f, 0f, 0f, 1f);
-        tmpText.alignment = TMPro.TextAlignmentOptions.Left;
+        tmpText.alignment = TextAlignmentOptions.Left;
 
         // ── Grid container ──
         GameObject containerObj = new GameObject($"{label}Container");
@@ -282,12 +294,14 @@ public class InventoryUI : MonoBehaviour
         var playerObj = NetworkManager.Singleton.LocalClient.PlayerObject;
         var inventory = playerObj.GetComponent<Inventory>();
         var resources = playerObj.GetComponent<ResourceInventory>();
+        var carryCapacity = playerObj.GetComponent<PlayerCarryCapacity>();
 
-        // Wait until both are available
-        if (inventory == null || resources == null) return;
+        // Wait until all are available
+        if (inventory == null || resources == null || carryCapacity == null) return;
 
         _localInventory = inventory;
         _localResources = resources;
+        _localCarryCapacity = carryCapacity;
         SubscribeToInventory();
         RebuildUI();
 
@@ -298,7 +312,7 @@ public class InventoryUI : MonoBehaviour
 
     private void SubscribeToInventory()
     {
-        if (_isSubscribed || _localInventory == null || _localResources == null) return;
+        if (_isSubscribed || _localInventory == null || _localResources == null || _localCarryCapacity == null) return;
 
         // Subscribe to equipment changes
         _localInventory.Items.OnListChanged += OnInventoryChanged;
@@ -309,6 +323,9 @@ public class InventoryUI : MonoBehaviour
         _localResources.Items.OnListChanged += OnInventoryChanged;
         _localResources.CurrentWeight.OnValueChanged += OnWeightChanged;
         _localResources.MaxWeight.OnValueChanged += OnWeightChanged;
+
+        // Subscribe to shared capacity changes
+        _localCarryCapacity.MaxCarryWeight.OnValueChanged += OnWeightChanged;
 
         _isSubscribed = true;
     }
@@ -331,13 +348,18 @@ public class InventoryUI : MonoBehaviour
             _localResources.MaxWeight.OnValueChanged -= OnWeightChanged;
         }
 
+        if (_localCarryCapacity != null)
+        {
+            _localCarryCapacity.MaxCarryWeight.OnValueChanged -= OnWeightChanged;
+        }
+
         _isSubscribed = false;
     }
 
     // ───────────────────────── Event Handler ─────────────────────────
 
     /// <summary>
-    /// Called whenever the NetworkList changes (add, remove, value update).
+    /// Called whenever a NetworkList changes (add, remove, value update).
     /// Triggered by NGO's replication — we never call this ourselves.
     /// Simply rebuilds the entire UI from the current list state.
     ///
@@ -345,7 +367,7 @@ public class InventoryUI : MonoBehaviour
     /// changeEvent.Type and changeEvent.Index. For a survival game with ~20
     /// slots, a full rebuild is fine and much simpler to maintain.
     /// </summary>
-    private void OnInventoryChanged(NetworkListEvent<InventoryItem> changeEvent)
+    private void OnInventoryChanged(NetworkListEvent<InventorySlot> changeEvent)
     {
         RebuildUI();
     }
@@ -378,26 +400,16 @@ public class InventoryUI : MonoBehaviour
         }
         _slotInstances.Clear();
 
-        // ── Build RESOURCE slots ──
+        // ── Build RESOURCE slots (fixed-size list, empty slots are explicit) ──
         for (int i = 0; i < _localResources.Items.Count; i++)
         {
-            CreateSlot(_localResources.Items[i], _resourceContainer);
-        }
-        int resourceEmpty = resourceSlotCount - _localResources.Items.Count;
-        for (int i = 0; i < resourceEmpty; i++)
-        {
-            CreateEmptySlot(_resourceContainer);
+            CreateSlot(_localResources, i, _localResources.Items[i], _resourceContainer);
         }
 
         // ── Build EQUIPMENT slots ──
         for (int i = 0; i < _localInventory.Items.Count; i++)
         {
-            CreateSlot(_localInventory.Items[i], _equipmentContainer);
-        }
-        int equipEmpty = equipmentSlotCount - _localInventory.Items.Count;
-        for (int i = 0; i < equipEmpty; i++)
-        {
-            CreateEmptySlot(_equipmentContainer);
+            CreateSlot(_localInventory, i, _localInventory.Items[i], _equipmentContainer);
         }
 
         UpdateWeightBar();
@@ -412,9 +424,11 @@ public class InventoryUI : MonoBehaviour
     {
         if (_localInventory == null || _localResources == null) return;
 
-        // Sum weights from BOTH inventories
+        // Sum weights from BOTH inventories, but use the shared carry limit
         float current = _localInventory.CurrentWeight.Value + _localResources.CurrentWeight.Value;
-        float max = _localInventory.MaxWeight.Value + _localResources.MaxWeight.Value;
+        float max = _localCarryCapacity != null
+            ? _localCarryCapacity.MaxCarryWeight.Value
+            : _localInventory.MaxWeight.Value + _localResources.MaxWeight.Value;
         float ratio = (max > 0f) ? Mathf.Clamp01(current / max) : 0f;
 
         // Update slider
@@ -447,10 +461,10 @@ public class InventoryUI : MonoBehaviour
     }
 
     /// <summary>
-    /// Creates a single populated slot from inventory data.
-    /// Looks up the ItemDefinition for display name and icon.
+    /// Creates a single slot, attaches the InventorySlotUI controller, and
+    /// refreshes it from the replicated slot data.
     /// </summary>
-    private void CreateSlot(InventoryItem item, Transform parent)
+    private void CreateSlot(BaseInventory inventory, int index, InventorySlot slot, Transform parent)
     {
         GameObject slotObj = Instantiate(slotPrefab, parent);
         _slotInstances.Add(slotObj);
@@ -466,71 +480,110 @@ public class InventoryUI : MonoBehaviour
             bgImage.color = Color.white;
         }
 
-        // Find child components by name
-        Image iconImage = FindChildComponent<Image>(slotObj, "Icon");
-        TMP_Text quantityText = FindChildComponent<TMP_Text>(slotObj, "QuantityText");
+        // Attach / reuse the slot UI controller
+        InventorySlotUI slotUI = slotObj.GetComponent<InventorySlotUI>();
+        if (slotUI == null)
+            slotUI = slotObj.AddComponent<InventorySlotUI>();
 
-        // Look up item definition for icon and display info
-        string itemId = item.ItemId.ToString();
-        ItemDefinition itemDef = ItemDatabase.GetItem(itemId);
+        slotUI.Inventory = inventory;
+        slotUI.SlotIndex = index;
+        slotUI.InventoryUI = this;
+        slotUI.Refresh(slot);
+    }
 
-        if (iconImage != null)
-        {
-            if (itemDef != null && itemDef.icon != null)
-            {
-                iconImage.sprite = itemDef.icon;
-                iconImage.color = Color.white;
-            }
-            else
-            {
-                // No icon available — show a colored placeholder
-                iconImage.sprite = null;
-                iconImage.color = new Color(0.6f, 0.8f, 0.5f, 0.8f);
-            }
-        }
+    // ───────────────────────── Drag & Drop ─────────────────────────
 
-        if (quantityText != null)
-        {
-            quantityText.text = item.Quantity > 1 ? $"x{item.Quantity}" : "";
-        }
+    /// <summary>
+    /// Called by InventorySlotUI when the player starts dragging a non-empty slot.
+    /// </summary>
+    public void BeginSlotDrag(InventorySlotUI source)
+    {
+        if (source == null || source.Inventory == null) return;
+        if (source.Inventory.Items[source.SlotIndex].IsEmpty) return;
 
-        slotObj.name = $"Slot_{itemId}_{item.Quantity}";
+        _dragSource = source;
+
+        // Use the slot's icon as the drag visual, fallback if unavailable.
+        Sprite icon = source.ItemIcon;
+        CreateDragIcon(icon);
     }
 
     /// <summary>
-    /// Creates an empty slot placeholder.
+    /// Called by InventorySlotUI every frame while dragging.
     /// </summary>
-    private void CreateEmptySlot(Transform parent)
+    public void UpdateSlotDrag(PointerEventData eventData)
     {
-        GameObject slotObj = Instantiate(slotPrefab, parent);
-        _slotInstances.Add(slotObj);
-
-        ConfigureSlotLayout(slotObj);
-
-        // Apply the slot background sprite to the root Image
-        Image bgImage = slotObj.GetComponent<Image>();
-        if (bgImage != null && emptySlotSprite != null)
-        {
-            bgImage.sprite = emptySlotSprite;
-            bgImage.color = Color.white;
-        }
-
-        // Hide the icon on empty slots
-        Image iconImage = FindChildComponent<Image>(slotObj, "Icon");
-        if (iconImage != null)
-        {
-            iconImage.sprite = null;
-            iconImage.color = Color.clear; // Fully transparent — no item to show
-        }
-
-        TMP_Text quantityText = FindChildComponent<TMP_Text>(slotObj, "QuantityText");
-        if (quantityText != null)
-        {
-            quantityText.text = "";
-        }
-
-        slotObj.name = "Slot_Empty";
+        if (_dragIconRect == null) return;
+        _dragIconRect.position = eventData.position;
     }
+
+    /// <summary>
+    /// Called by InventorySlotUI when the drag ends.
+    /// If dropped on another slot in the same inventory, request a move/merge/swap.
+    /// If dropped outside any slot, request a drop into the world.
+    /// </summary>
+    public void EndSlotDrag(InventorySlotUI source, PointerEventData eventData)
+    {
+        DestroyDragIcon();
+
+        if (source == null || source.Inventory == null) return;
+
+        InventorySlotUI target = GetSlotUnderPointer(eventData);
+
+        if (target != null && target.Inventory == source.Inventory && target.SlotIndex != source.SlotIndex)
+        {
+            source.Inventory.MoveOrMergeSlotServerRpc(source.SlotIndex, target.SlotIndex);
+        }
+        else if (target == null)
+        {
+            // Dropped outside any slot → drop the full stack into the world.
+            InventorySlot slot = source.Inventory.Items[source.SlotIndex];
+            if (!slot.IsEmpty)
+                source.Inventory.DropSlotServerRpc(source.SlotIndex, slot.Quantity);
+        }
+
+        _dragSource = null;
+    }
+
+    private void CreateDragIcon(Sprite sprite)
+    {
+        if (_canvas == null) return;
+
+        _dragIcon = new GameObject("DragIcon");
+        _dragIcon.transform.SetParent(_canvas.transform, false);
+
+        Image img = _dragIcon.AddComponent<Image>();
+        img.sprite = sprite != null ? sprite : dragIconFallback;
+        img.color = Color.white;
+        img.raycastTarget = false;
+
+        _dragIconRect = _dragIcon.GetComponent<RectTransform>();
+        _dragIconRect.sizeDelta = new Vector2(64f, 64f);
+    }
+
+    private void DestroyDragIcon()
+    {
+        if (_dragIcon != null)
+        {
+            Destroy(_dragIcon);
+            _dragIcon = null;
+            _dragIconRect = null;
+        }
+    }
+
+    /// <summary>
+    /// Returns the InventorySlotUI under the pointer, or null if none.
+    /// </summary>
+    private InventorySlotUI GetSlotUnderPointer(PointerEventData eventData)
+    {
+        GameObject hovered = eventData.pointerCurrentRaycast.gameObject;
+        if (hovered == null) return null;
+
+        InventorySlotUI slotUI = hovered.GetComponentInParent<InventorySlotUI>();
+        return slotUI;
+    }
+
+    // ───────────────────────── Slot Layout ─────────────────────────
 
     /// <summary>
     /// Programmatically configures the RectTransform anchoring for slot children
@@ -621,26 +674,13 @@ public class InventoryUI : MonoBehaviour
             // Closing inventory — re-lock cursor for gameplay
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
+            DestroyDragIcon();
         }
 
         Debug.Log($"[InventoryUI] Inventory panel {(newState ? "opened" : "closed")}.");
     }
 
     // ───────────────────────── Utility ─────────────────────────
-
-    /// <summary>
-    /// Finds a component on a named child object. Returns null if not found.
-    /// Searches recursively through all children.
-    /// </summary>
-    private T FindChildComponent<T>(GameObject parent, string childName) where T : Component
-    {
-        Transform child = FindChildRecursive(parent.transform, childName);
-        if (child == null)
-        {
-            return null;
-        }
-        return child.GetComponent<T>();
-    }
 
     private Transform FindChildRecursive(Transform parent, string name)
     {

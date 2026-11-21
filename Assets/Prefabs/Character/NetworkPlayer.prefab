@@ -159,6 +159,7 @@ GameObject:
   - component: {fileID: 1656564301608382815}
   - component: {fileID: 987654321098765432}
   - component: {fileID: 987654321098765433}
+  - component: {fileID: 987654321098765440}
   m_Layer: 7
   m_Name: NetworkPlayer
   m_TagString: Untagged
@@ -352,6 +353,7 @@ MonoBehaviour:
     m_InternalValue: 0
   maxSlots: 20
   maxCarryWeight: 50
+  defaultDropPrefab: {fileID: 5356644009021412657, guid: 4d71fc11c782b75449b5bce4a5c071c2, type: 3}
 --- !u!114 &-971714974245123131
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -437,6 +439,7 @@ MonoBehaviour:
     m_InternalValue: 0
   maxSlots: 20
   maxCarryWeight: 50
+  defaultDropPrefab: {fileID: 5356644009021412657, guid: 4d71fc11c782b75449b5bce4a5c071c2, type: 3}
 --- !u!114 &-746832235637175571
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -591,6 +594,25 @@ MonoBehaviour:
     serializedVersion: 2
     m_Bits: 4294967167
   promptHeight: 0.5
+--- !u!114 &987654321098765440
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7753491147168892034}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4c272e2afcfd48e484364397eab468ae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PlayerCarryCapacity
+  ShowTopMostFoldoutHeaderGroup: 1
+  maxCarryWeight: 100
+  MaxCarryWeight:
+    UpdateTraits:
+      MinSecondsBetweenUpdates: 0
+      MaxSecondsBetweenUpdates: 0
+    m_InternalValue: 100
 --- !u!1 &8803246946417512816
 GameObject:
   m_ObjectHideFlags: 0

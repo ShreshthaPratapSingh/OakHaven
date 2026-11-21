@@ -48,4 +48,9 @@ public class ItemDefinition : ScriptableObject
 
     [Tooltip("Visual prefab attached to the hand socket when equipped. Null = not a held item.")]
     public GameObject equippedPrefab;
+
+    [Header("Dropping")]
+    [Tooltip("Optional prefab spawned when this item is dropped from an inventory. " +
+             "If null, the inventory's default drop prefab is used.")]
+    public GameObject dropPrefab;
 }

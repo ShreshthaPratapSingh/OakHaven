@@ -51,7 +51,7 @@ public static class NetworkingSetup
     /// Finds the NetworkPlayer prefab anywhere in the project via AssetDatabase
     /// search instead of a hardcoded path (folders get reorganized).
     /// </summary>
-    private static GameObject FindExistingPlayerPrefab()
+    public static GameObject FindExistingPlayerPrefab()
     {
         string[] guids = AssetDatabase.FindAssets("NetworkPlayer t:Prefab");
         if (guids.Length == 0) return null;
@@ -179,7 +179,7 @@ public static class NetworkingSetup
     }
 
 
-    private static void RegisterPrefabInNetworkPrefabsList(GameObject prefab)
+    public static void RegisterPrefabInNetworkPrefabsList(GameObject prefab)
     {
         // Find the DefaultNetworkPrefabs asset
         string[] guids = AssetDatabase.FindAssets("t:NetworkPrefabsList");
