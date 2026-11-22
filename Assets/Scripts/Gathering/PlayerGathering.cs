@@ -107,6 +107,14 @@ public class PlayerGathering : NetworkBehaviour
         _equipment = GetComponent<PlayerEquipment>();
     }
 
+    /// <summary>
+    /// Updates the Animator reference after the character visual is swapped.
+    /// </summary>
+    public void SetAnimator(Animator animator)
+    {
+        _animator = animator;
+    }
+
     public override void OnNetworkDespawn()
     {
         base.OnNetworkDespawn();

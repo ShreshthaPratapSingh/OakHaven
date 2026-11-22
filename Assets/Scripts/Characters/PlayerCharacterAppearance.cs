@@ -106,13 +106,23 @@ public class PlayerCharacterAppearance : NetworkBehaviour
 
         // Resolve Animator on the new visual.
         _currentAnimator = visualInstance.GetComponentInChildren<Animator>();
-        if (_currentAnimator != null && defaultAnimator != null && _currentAnimator.runtimeAnimatorController == null)
+        if (_currentAnimator != null && defaultAnimator != null)
         {
-            _currentAnimator.runtimeAnimatorController = defaultAnimator.runtimeAnimatorController;
-            _currentAnimator.avatar = defaultAnimator.avatar;
+            // Use the default animation controller so movement/equipment states work.
+            if (defaultAnimator.runtimeAnimatorController != null)
+                _currentAnimator.runtimeAnimatorController = defaultAnimator.runtimeAnimatorController;
+
+            // If the visual has no humanoid Avatar, copy the default one (needed for raw FBX visuals
+            // like the Brute). Mixamo visuals already have their own Avatar and should keep it.
+            if (_currentAnimator.avatar == null && defaultAnimator.avatar != null)
+                _currentAnimator.avatar = defaultAnimator.avatar;
         }
         if (_currentAnimator == null)
             _currentAnimator = defaultAnimator;
+
+        // Movement is driven by CharacterController/NetworkTransform, not animation root motion.
+        if (_currentAnimator != null)
+            _currentAnimator.applyRootMotion = false;
 
         // Rewire gameplay references that depend on the visible model.
         RewirePlayerReferences();
@@ -124,7 +134,10 @@ public class PlayerCharacterAppearance : NetworkBehaviour
     {
         PlayerController controller = GetComponent<PlayerController>();
         if (controller != null)
+        {
             controller.SetPlayerModel(_currentVisualRoot);
+            controller.SetAnimator(_currentAnimator);
+        }
 
         PlayerEquipment equipment = GetComponent<PlayerEquipment>();
         if (equipment != null)
@@ -140,6 +153,10 @@ public class PlayerCharacterAppearance : NetworkBehaviour
                 Debug.LogWarning("[PlayerCharacterAppearance] Could not find or create a hand socket on the new visual.");
             }
         }
+
+        PlayerGathering gathering = GetComponent<PlayerGathering>();
+        if (gathering != null)
+            gathering.SetAnimator(_currentAnimator);
     }
 
     private Transform FindOrCreateHandSocket(Transform visualRoot)

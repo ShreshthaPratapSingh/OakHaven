@@ -10,9 +10,9 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: f4e6d4b51d6f4832a1ded937d13e77e3, type: 3}
-  m_Name: Brute 2
+  m_Name: Pelegrini
   m_EditorClassIdentifier: Assembly-CSharp::CharacterDefinition
-  id: brute
-  displayName: Brute
+  id: pelegrini
+  displayName: Pelegrini
   icon: {fileID: 0}
-  visualPrefab: {fileID: 919132149155446097, guid: 51a1e0a36bc4d7a43966be7918bd1e33, type: 3}
+  visualPrefab: {fileID: 5851820690430753058, guid: 75f5644abf89f0149b2746e9f01d173a, type: 3}
