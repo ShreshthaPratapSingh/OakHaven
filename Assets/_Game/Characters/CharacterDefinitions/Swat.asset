@@ -10,9 +10,9 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: f4e6d4b51d6f4832a1ded937d13e77e3, type: 3}
-  m_Name: Pelegrini
+  m_Name: Swat
   m_EditorClassIdentifier: Assembly-CSharp::CharacterDefinition
-  id: pelegrini
-  displayName: Pelegrini
-  icon: {fileID: 0}
-  visualPrefab: {fileID: 5851820690430753058, guid: 75f5644abf89f0149b2746e9f01d173a, type: 3}
+  id: swat
+  displayName: Swat
+  icon: {fileID: -1869276076554807694, guid: 503f9bd360bd386499db801157cef299, type: 3}
+  visualPrefab: {fileID: 1404920646473602331, guid: 02cbc48a368efef49a99a783ce9773be, type: 3}

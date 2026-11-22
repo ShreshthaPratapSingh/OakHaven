@@ -10,9 +10,9 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: f4e6d4b51d6f4832a1ded937d13e77e3, type: 3}
-  m_Name: Brute 5
+  m_Name: Eve
   m_EditorClassIdentifier: Assembly-CSharp::CharacterDefinition
-  id: swat
-  displayName: Swat
-  icon: {fileID: 0}
-  visualPrefab: {fileID: 1404920646473602331, guid: 02cbc48a368efef49a99a783ce9773be, type: 3}
+  id: eve
+  displayName: Eve
+  icon: {fileID: 5637780434179476285, guid: 7f7138589666df84d9ea2582692c324e, type: 3}
+  visualPrefab: {fileID: 2020577805165380696, guid: c033856d67c27b148a12d7e0b89ede2e, type: 3}

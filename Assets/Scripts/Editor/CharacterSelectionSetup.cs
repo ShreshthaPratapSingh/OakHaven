@@ -316,18 +316,19 @@ public static class CharacterSelectionSetup
         GameObject iconObj = new GameObject("Icon");
         iconObj.transform.SetParent(root.transform, false);
         RectTransform iconRt = iconObj.AddComponent<RectTransform>();
-        iconRt.anchorMin = new Vector2(0, 0.25f);
+        iconRt.anchorMin = new Vector2(0, 0.13f);
         iconRt.anchorMax = Vector2.one;
-        iconRt.offsetMin = new Vector2(8, 8);
-        iconRt.offsetMax = new Vector2(-8, -8);
+        iconRt.offsetMin = new Vector2(16, 16);
+        iconRt.offsetMax = new Vector2(-16, -16);
         Image icon = iconObj.AddComponent<Image>();
         icon.color = Color.white;
+        icon.preserveAspect = false;
 
         GameObject labelObj = new GameObject("Label");
         labelObj.transform.SetParent(root.transform, false);
         RectTransform labelRt = labelObj.AddComponent<RectTransform>();
         labelRt.anchorMin = Vector2.zero;
-        labelRt.anchorMax = new Vector2(1, 0.25f);
+        labelRt.anchorMax = new Vector2(1, 0.13f);
         labelRt.offsetMin = new Vector2(4, 4);
         labelRt.offsetMax = new Vector2(-4, -4);
         TextMeshProUGUI label = labelObj.AddComponent<TextMeshProUGUI>();

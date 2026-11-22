@@ -10,9 +10,9 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: f4e6d4b51d6f4832a1ded937d13e77e3, type: 3}
-  m_Name: Qwen
+  m_Name: Maria
   m_EditorClassIdentifier: Assembly-CSharp::CharacterDefinition
-  id: qwen
-  displayName: Qwen
-  icon: {fileID: 0}
-  visualPrefab: {fileID: 7723489481878192226, guid: d2b3427222bcdfd4cb9b1f13f15ece34, type: 3}
+  id: maria
+  displayName: Maria
+  icon: {fileID: 6863343956818707910, guid: 12c18f592222d9a47b0e18245f3d14eb, type: 3}
+  visualPrefab: {fileID: 6755640465886505439, guid: c29dae4d83f699448a6c3585fa94b62e, type: 3}
