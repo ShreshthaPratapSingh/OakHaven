@@ -10,9 +10,9 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: f4e6d4b51d6f4832a1ded937d13e77e3, type: 3}
-  m_Name: Brute 2
+  m_Name: Brute
   m_EditorClassIdentifier: Assembly-CSharp::CharacterDefinition
   id: brute
   displayName: Brute
-  icon: {fileID: 0}
-  visualPrefab: {fileID: 919132149155446097, guid: 51a1e0a36bc4d7a43966be7918bd1e33, type: 3}
+  icon: {fileID: 7857396728613076308, guid: a228ec4c4b6845f4081d4de266af530b, type: 3}
+  visualPrefab: {fileID: 8806563724404459964, guid: a99e7fa16fcdee044a1a645535ea5acf, type: 3}

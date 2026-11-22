@@ -168,11 +168,11 @@ public class CharacterSelectionManager : NetworkBehaviour
             return;
         }
 
+        netObj.SpawnAsPlayerObject(clientId);
+
         PlayerCharacterAppearance appearance = playerInstance.GetComponent<PlayerCharacterAppearance>();
         if (appearance != null)
             appearance.SetCharacterId(characterId);
-
-        netObj.SpawnAsPlayerObject(clientId);
         Debug.Log($"[CharacterSelectionManager] Spawned player for client {clientId} with character '{characterId}'.");
     }
 

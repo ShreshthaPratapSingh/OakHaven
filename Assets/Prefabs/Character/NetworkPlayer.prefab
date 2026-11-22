@@ -197,7 +197,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5a57f767e5e46a458fc5d3c628d0cbb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Unity.Netcode.Runtime::Unity.Netcode.NetworkObject
-  GlobalObjectIdHash: 3971222761
+  GlobalObjectIdHash: 533114932
   InScenePlacedSourceGlobalObjectIdHash: 0
   m_InScenePlacedDisabledByDefault: 0
   DeferredDespawnTick: 0
@@ -574,7 +574,16 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerStartingLoadout
   ShowTopMostFoldoutHeaderGroup: 1
-  startingItems: []
+  startingItems:
+  - itemId: wood
+    amount: 15
+    isResource: 1
+  - itemId: stone
+    amount: 15
+    isResource: 1
+  - itemId: fiber
+    amount: 10
+    isResource: 1
 --- !u!114 &987654321098765433
 MonoBehaviour:
   m_ObjectHideFlags: 0

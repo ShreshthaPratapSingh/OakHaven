@@ -328,6 +328,12 @@ public class PlayerController : NetworkBehaviour
     public void SetAnimator(Animator animator)
     {
         _animator = animator;
+
+        // Point NetworkAnimator at the new visual so Jump/Land triggers sync correctly.
+        if (_networkAnimator != null)
+        {
+            _networkAnimator.Animator = animator;
+        }
     }
 
     // ───────────────────────── Safety ─────────────────────────

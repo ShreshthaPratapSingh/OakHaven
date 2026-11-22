@@ -146,14 +146,22 @@ public class CharacterSelectionUI : MonoBehaviour
             _characterButtons.Add(btnObj);
 
             Button button = btnObj.GetComponent<Button>();
-            Image image = btnObj.GetComponent<Image>();
+            // Assign the portrait to the dedicated Icon child, not the card background.
+            Transform iconTransform = btnObj.transform.Find("Icon");
+            Image iconImage = iconTransform != null ? iconTransform.GetComponent<Image>() : null;
             TMP_Text label = btnObj.GetComponentInChildren<TMP_Text>();
 
             if (label != null)
                 label.text = def.displayName;
 
-            if (image != null && def.icon != null)
-                image.sprite = def.icon;
+            if (iconImage != null)
+            {
+                iconImage.enabled = def.icon != null;
+                // Crop every source sprite to the icon area's aspect ratio so all
+                // cards look identical — no stretching and no uneven letterboxing.
+                iconImage.sprite = def.icon != null ? CropSpriteToAspect(def.icon, 0.82f) : null;
+                iconImage.preserveAspect = false;
+            }
 
             if (button != null)
             {
@@ -194,5 +202,38 @@ public class CharacterSelectionUI : MonoBehaviour
     {
         if (selectionStatusText != null)
             selectionStatusText.text = message;
+    }
+
+    /// <summary>
+    /// Returns a new sprite cropped from the center of the source to the target aspect ratio.
+    /// This makes every character card display the same shaped portrait regardless of source image.
+    /// </summary>
+    private Sprite CropSpriteToAspect(Sprite source, float targetAspect)
+    {
+        if (source == null || source.texture == null) return null;
+
+        Rect texRect = source.textureRect;
+        float sourceAspect = texRect.width / texRect.height;
+
+        float cropWidth, cropHeight, x, y;
+        if (sourceAspect > targetAspect)
+        {
+            // Source is too wide — crop the left/right sides.
+            cropHeight = texRect.height;
+            cropWidth = cropHeight * targetAspect;
+            x = (texRect.width - cropWidth) * 0.5f;
+            y = 0f;
+        }
+        else
+        {
+            // Source is too tall — crop the top/bottom.
+            cropWidth = texRect.width;
+            cropHeight = cropWidth / targetAspect;
+            x = 0f;
+            y = (texRect.height - cropHeight) * 0.5f;
+        }
+
+        Rect cropRect = new Rect(texRect.x + x, texRect.y + y, cropWidth, cropHeight);
+        return Sprite.Create(source.texture, cropRect, new Vector2(0.5f, 0.5f), source.pixelsPerUnit);
     }
 }
