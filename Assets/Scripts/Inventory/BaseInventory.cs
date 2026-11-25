@@ -431,10 +431,29 @@ public abstract class BaseInventory : NetworkBehaviour
 
         ItemDefinition def = ItemDatabase.GetItem(itemId);
         GameObject prefab = def != null && def.dropPrefab != null ? def.dropPrefab : defaultDropPrefab;
+
+        // Item-specific visual prefabs that are also static world pickups must not be
+        // used for inventory drops — they contain a WorldPickup that grants a fixed
+        // amount and despawns the object, losing the rest of the stack.
+        if (prefab != null && prefab.GetComponent<WorldPickup>() != null)
+        {
+            Debug.LogWarning($"{LogTag} Drop prefab for '{itemId}' is a static WorldPickup; falling back to default drop prefab.");
+            prefab = defaultDropPrefab;
+        }
+
         if (prefab == null)
         {
             Debug.LogError($"{LogTag} Cannot drop '{itemId}' - no drop prefab assigned. " +
                            "Run Tools > OakHaven > Create World Item Drop Prefab and assign it to this inventory.");
+            return;
+        }
+
+        // Validate the prefab before removing items from inventory.
+        NetworkObject dropNetObj = prefab.GetComponent<NetworkObject>();
+        WorldItemDrop dropBehaviour = prefab.GetComponent<WorldItemDrop>();
+        if (dropNetObj == null || dropBehaviour == null)
+        {
+            Debug.LogError($"{LogTag} Drop prefab for '{itemId}' must have both NetworkObject and WorldItemDrop components.");
             return;
         }
 
@@ -448,23 +467,22 @@ public abstract class BaseInventory : NetworkBehaviour
 
         Debug.Log($"[BaseInventory] Spawning world drop for {itemId} x{quantity} at {spawnPos} using prefab '{prefab.name}'");
         GameObject dropInstance = Instantiate(prefab, spawnPos, Quaternion.identity);
-        NetworkObject dropNetObj = dropInstance.GetComponent<NetworkObject>();
-        if (dropNetObj == null)
-        {
-            Debug.LogError($"{LogTag} Drop prefab for '{itemId}' is missing a NetworkObject.");
-            Destroy(dropInstance);
-            return;
-        }
+        dropNetObj = dropInstance.GetComponent<NetworkObject>();
+        dropBehaviour = dropInstance.GetComponent<WorldItemDrop>();
 
-        // Ensure the drop has the required behaviour and physics components.
-        // This lets the system recover if a user assigns a plain visual prefab.
-        WorldItemDrop drop = dropInstance.GetComponent<WorldItemDrop>();
-        if (drop == null)
-        {
-            Debug.LogWarning($"{LogTag} Drop prefab for '{itemId}' is missing a WorldItemDrop component. Adding one at runtime.");
-            drop = dropInstance.AddComponent<WorldItemDrop>();
-        }
+        EnsureDropPhysics(dropInstance);
 
+        dropNetObj.Spawn(true);
+        dropBehaviour.Initialize(itemId, quantity);
+    }
+
+    /// <summary>
+    /// Ensures the drop has physics so it lands on the ground. Missing physics
+    /// components are added as a safety net, but NetworkObject/WorldItemDrop must
+    /// already be present in the prefab to keep network behaviour consistent.
+    /// </summary>
+    private static void EnsureDropPhysics(GameObject dropInstance)
+    {
         Rigidbody rb = dropInstance.GetComponent<Rigidbody>();
         if (rb == null)
         {
@@ -476,14 +494,10 @@ public abstract class BaseInventory : NetworkBehaviour
 
         if (dropInstance.GetComponent<Collider>() == null)
         {
-            // Small physics collider so it lands on the ground.
             BoxCollider col = dropInstance.AddComponent<BoxCollider>();
             col.size = Vector3.one * 0.3f;
             col.center = new Vector3(0f, 0.15f, 0f);
         }
-
-        dropNetObj.Spawn(true);
-        drop.Initialize(itemId, quantity);
     }
 
     // ------------------------------------------------------------------

@@ -54,16 +54,38 @@ public class CharacterSelectionUI : MonoBehaviour
             backButton.onClick.AddListener(OnBackClicked);
     }
 
+    private void Update()
+    {
+        // Fallback for mixed builds: if the server spawned our player but never sent
+        // the ConfirmSpawn ClientRpc (e.g. the host is running an older build), hide
+        // the selection panel once the local player object exists.
+        if (characterSelectionPanel != null && characterSelectionPanel.activeInHierarchy)
+        {
+            if (NetworkManager.Singleton != null &&
+                NetworkManager.Singleton.LocalClient != null &&
+                NetworkManager.Singleton.LocalClient.PlayerObject != null)
+            {
+                HideSelectionPanel();
+            }
+        }
+    }
+
     private void OnEnable()
     {
         if (selectionManager != null)
+        {
             selectionManager.OnTakenCharactersChanged += RefreshCharacters;
+            selectionManager.OnCharacterSpawned += OnCharacterSpawned;
+        }
     }
 
     private void OnDisable()
     {
         if (selectionManager != null)
+        {
             selectionManager.OnTakenCharactersChanged -= RefreshCharacters;
+            selectionManager.OnCharacterSpawned -= OnCharacterSpawned;
+        }
     }
 
     /// <summary>
@@ -120,6 +142,50 @@ public class CharacterSelectionUI : MonoBehaviour
 
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
+    }
+
+    /// <summary>
+    /// Hides the selection panel and locks the cursor once the server has spawned the player.
+    /// </summary>
+    public void HideSelectionPanel()
+    {
+        if (characterSelectionPanel != null)
+            characterSelectionPanel.SetActive(false);
+
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
+    }
+
+    /// <summary>
+    /// Called after the player clicks a character while waiting for the server to spawn them.
+    /// </summary>
+    public void ShowSelectionPending()
+    {
+        SetStatus("Spawning character...");
+
+        foreach (GameObject btn in _characterButtons)
+        {
+            if (btn == null) continue;
+            Button button = btn.GetComponent<Button>();
+            if (button != null)
+                button.interactable = false;
+        }
+    }
+
+    /// <summary>
+    /// Called when the server rejects the selected character.
+    /// </summary>
+    public void ShowSelectionRejected(string reason)
+    {
+        SetStatus("Rejected: " + reason);
+
+        foreach (GameObject btn in _characterButtons)
+        {
+            if (btn == null) continue;
+            Button button = btn.GetComponent<Button>();
+            if (button != null)
+                button.interactable = true;
+        }
     }
 
     private void RefreshCharacters()
@@ -179,12 +245,14 @@ public class CharacterSelectionUI : MonoBehaviour
         if (selectionManager != null)
             selectionManager.SelectCharacter(characterId);
 
-        // Hide selection UI so the player can start playing.
-        if (characterSelectionPanel != null)
-            characterSelectionPanel.SetActive(false);
+        // Keep the panel visible but disabled until the server confirms the spawn.
+        ShowSelectionPending();
+    }
 
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
+    private void OnCharacterSpawned(ulong clientId)
+    {
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClientId == clientId)
+            HideSelectionPanel();
     }
 
     private void OnBackClicked()
@@ -194,6 +262,9 @@ public class CharacterSelectionUI : MonoBehaviour
         {
             NetworkManager.Singleton.Shutdown();
         }
+
+        if (relayManager != null)
+            relayManager.ClearSessionHud();
 
         ShowMainMenu();
     }

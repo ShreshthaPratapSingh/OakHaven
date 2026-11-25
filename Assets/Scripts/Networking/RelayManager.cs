@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using Unity.Netcode;
 using Unity.Netcode.Transports.UTP;
 using Unity.Services.Authentication;
@@ -21,11 +22,17 @@ using TMPro;
 /// </summary>
 public class RelayManager : MonoBehaviour
 {
-    [Header("UI References")]
+    [Header("Menu UI")]
     [SerializeField] private Button hostButton;
     [SerializeField] private Button joinButton;
     [SerializeField] private TMP_InputField joinCodeInputField;
     [SerializeField] private TMP_Text statusText;
+
+    [Header("Session HUD")]
+    [Tooltip("Persistent HUD root shown after host/client starts. Should be a direct child of the Canvas, outside any menu panel.")]
+    [SerializeField] private GameObject sessionHudRoot;
+    [Tooltip("TMP text inside the persistent HUD that displays the join code / connection status.")]
+    [SerializeField] private TMP_Text sessionCodeText;
 
     [Header("Relay Settings")]
     [SerializeField] private int maxConnections = 4;
@@ -39,6 +46,15 @@ public class RelayManager : MonoBehaviour
     public Quaternion SpawnRotation => Quaternion.Euler(spawnRotation);
 
     private string _joinCode;
+    private string _pendingJoinCode;
+    private Coroutine _connectionTimeout;
+
+    // How long the client waits for OnClientConnectedCallback before declaring timeout.
+    private const float ConnectionTimeoutSeconds = 15f;
+
+    // True while a host/client start is in progress. Prevents double-clicks from
+    // starting multiple concurrent Relay allocations / NGO starts.
+    private bool _networkStartInProgress;
 
     // ───────────────────────── Lifecycle ─────────────────────────
 
@@ -79,6 +95,398 @@ public class RelayManager : MonoBehaviour
         // Runtime fallback: make sure the menu buttons drive the character selection UI
         // even if the scene's persistent UnityEvent listeners were lost.
         WireButtonsToCharacterSelectionUI();
+
+        // Subscribe to NGO lifecycle events so we only report success/failure when
+        // the transport actually connects or disconnects.
+        if (NetworkManager.Singleton != null)
+        {
+            NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnected;
+            NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnect;
+            NetworkManager.Singleton.OnTransportFailure += OnTransportFailure;
+        }
+    }
+
+    private void OnDestroy()
+    {
+        if (NetworkManager.Singleton != null)
+        {
+            NetworkManager.Singleton.OnClientConnectedCallback -= OnClientConnected;
+            NetworkManager.Singleton.OnClientDisconnectCallback -= OnClientDisconnect;
+            NetworkManager.Singleton.OnTransportFailure -= OnTransportFailure;
+        }
+    }
+
+    // ───────────────────────── Host (Create Relay) ─────────────────────────
+
+    /// <summary>
+    /// Allocates a Relay server, obtains a join code, configures UnityTransport,
+    /// and starts NGO as a Host. Player spawning is deferred to CharacterSelectionManager.
+    /// </summary>
+    public async void StartHostFlow()
+    {
+        if (_networkStartInProgress)
+        {
+            Debug.Log("[RelayManager] Host start already in progress. Ignoring extra click.");
+            return;
+        }
+
+        if (!_isSignedIn)
+        {
+            SetStatus("Not signed in yet.");
+            Debug.LogWarning("[RelayManager] Cannot host — not signed in.");
+            return;
+        }
+
+        _networkStartInProgress = true;
+        SetButtonsInteractable(false);
+        bool startedHost = false;
+
+        try
+        {
+            if (!ValidateNetworkManagerReady("host"))
+                return;
+
+            SetStatus("Creating relay...");
+            Debug.Log("[RelayManager] Creating relay allocation...");
+
+            Allocation allocation = await RelayService.Instance.CreateAllocationAsync(maxConnections);
+            _joinCode = await RelayService.Instance.GetJoinCodeAsync(allocation.AllocationId);
+            Debug.Log("[RelayManager] Join Code: " + _joinCode);
+
+            var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
+            transport.SetRelayServerData(allocation.ToRelayServerData("dtls"));
+
+            // Connection approval must be enabled on BOTH peers so the NGO config hash
+            // matches during the handshake. The callback itself is only assigned on the host.
+            PrepareNetworkConfig(isHost: true);
+
+            LogNetworkConfig("host");
+            LogNetworkManagerState("before StartHost");
+            startedHost = NetworkManager.Singleton.StartHost();
+            if (!startedHost)
+            {
+                SetStatus("Failed to start host. Check logs.");
+                LogNetworkManagerState("after StartHost failure");
+                Debug.LogError("[RelayManager] StartHost returned false.");
+                NetworkManager.Singleton.Shutdown();
+                return;
+            }
+
+            Debug.Log("[RelayManager] Host start requested. Waiting for local client connection...");
+        }
+        catch (RelayServiceException e)
+        {
+            SetStatus("Relay error: " + e.Message);
+            Debug.LogError("[RelayManager] Relay service error: " + e);
+        }
+        catch (Exception e)
+        {
+            SetStatus("Error: " + e.Message);
+            Debug.LogError("[RelayManager] StartHostFlow failed: " + e);
+        }
+        finally
+        {
+            if (!startedHost)
+            {
+                _networkStartInProgress = false;
+                SetButtonsInteractable(true);
+            }
+        }
+    }
+
+    // ───────────────────────── Client (Join Relay) ─────────────────────────
+
+    /// <summary>
+    /// Joins an existing Relay allocation using the provided join code,
+    /// configures UnityTransport, and starts NGO as a Client.
+    /// Player spawning is deferred to CharacterSelectionManager.
+    /// </summary>
+    public async void StartClientFlow(string joinCode)
+    {
+        if (_networkStartInProgress)
+        {
+            Debug.Log("[RelayManager] Join already in progress. Ignoring extra click.");
+            return;
+        }
+
+        if (!_isSignedIn)
+        {
+            SetStatus("Not signed in yet.");
+            Debug.LogWarning("[RelayManager] Cannot join — not signed in.");
+            return;
+        }
+
+        joinCode = joinCode?.Trim();
+        if (string.IsNullOrWhiteSpace(joinCode))
+        {
+            SetStatus("Please enter a join code.");
+            Debug.LogWarning("[RelayManager] Join code is empty.");
+            return;
+        }
+
+        _networkStartInProgress = true;
+        SetButtonsInteractable(false);
+        bool startedClient = false;
+
+        try
+        {
+            if (!ValidateNetworkManagerReady("client"))
+                return;
+
+            _pendingJoinCode = joinCode;
+            SetStatus("Joining relay...");
+            Debug.Log("[RelayManager] Joining relay with code: " + joinCode);
+
+            JoinAllocation joinAllocation = await RelayService.Instance.JoinAllocationAsync(joinCode);
+
+            var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
+            transport.SetRelayServerData(joinAllocation.ToRelayServerData("dtls"));
+
+            // Connection approval must be enabled on BOTH peers so the NGO config hash
+            // matches during the handshake. The callback itself is only assigned on the host.
+            PrepareNetworkConfig(isHost: false);
+
+            LogNetworkConfig("client");
+            LogNetworkManagerState("before StartClient");
+            startedClient = NetworkManager.Singleton.StartClient();
+            if (!startedClient)
+            {
+                SetStatus("Failed to start client. Check logs.");
+                LogNetworkManagerState("after StartClient failure");
+                Debug.LogError("[RelayManager] StartClient returned false.");
+                NetworkManager.Singleton.Shutdown();
+                return;
+            }
+
+            if (_connectionTimeout != null) StopCoroutine(_connectionTimeout);
+            _connectionTimeout = StartCoroutine(ConnectionTimeoutCoroutine());
+
+            SetStatus("Connecting to host...");
+            Debug.Log("[RelayManager] Client start requested. Waiting for connection...");
+        }
+        catch (RelayServiceException e)
+        {
+            SetStatus("Relay error: " + e.Message);
+            Debug.LogError("[RelayManager] Relay service error: " + e);
+        }
+        catch (Exception e)
+        {
+            SetStatus("Error: " + e.Message);
+            Debug.LogError("[RelayManager] StartClientFlow failed: " + e);
+        }
+        finally
+        {
+            if (!startedClient)
+            {
+                _networkStartInProgress = false;
+                SetButtonsInteractable(true);
+            }
+        }
+    }
+
+    // ───────────────────────── Connection Approval ─────────────────────────
+
+    /// <summary>
+    /// Enables connection approval in the NGO config on both host and client so
+    /// their NetworkConfig hashes match. The approval callback is only registered
+    /// on the host; the client does not need one.
+    /// </summary>
+    private void PrepareNetworkConfig(bool isHost)
+    {
+        var nm = NetworkManager.Singleton;
+        nm.NetworkConfig.ConnectionApproval = true;
+        nm.ConnectionApprovalCallback = isHost ? OnConnectionApproval : null;
+
+        Debug.Log($"[RelayManager] Prepared network config for {(isHost ? "host" : "client")}. " +
+                  $"ConnectionApproval=true, Callback={(isHost ? "assigned" : "cleared")}.");
+    }
+
+    /// <summary>
+    /// Logs the NGO config hash and the fields that contribute to it. Useful for
+    /// diagnosing mismatches between host and client builds.
+    /// </summary>
+    private void LogNetworkConfig(string role)
+    {
+        if (NetworkManager.Singleton == null) return;
+
+        var config = NetworkManager.Singleton.NetworkConfig;
+        try
+        {
+            ulong hash = config.GetConfig(false);
+            Debug.Log($"[RelayManager] NetworkConfig [{role}] hash=0x{hash:X16}, " +
+                      $"ProtocolVersion={config.ProtocolVersion}, " +
+                      $"ConnectionApproval={config.ConnectionApproval}, " +
+                      $"ForceSamePrefabs={config.ForceSamePrefabs}, " +
+                      $"EnableSceneManagement={config.EnableSceneManagement}, " +
+                      $"TickRate={config.TickRate}, " +
+                      $"RpcHashSize={config.RpcHashSize}, " +
+                      $"PlayerPrefab={(config.PlayerPrefab != null ? config.PlayerPrefab.name : "null")}, " +
+                      $"Prefabs.Count={config.Prefabs.Prefabs.Count}");
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning("[RelayManager] Could not compute NetworkConfig hash: " + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Called on the server/host for each incoming connection.
+    /// Approves the connection and stores the spawn position, but does NOT
+    /// auto-create the player object. CharacterSelectionManager spawns it later.
+    /// </summary>
+    private void OnConnectionApproval(
+        NetworkManager.ConnectionApprovalRequest request,
+        NetworkManager.ConnectionApprovalResponse response)
+    {
+        response.Approved = true;
+        response.CreatePlayerObject = false;
+        response.Position = spawnPosition;
+        response.Rotation = Quaternion.Euler(spawnRotation);
+        response.Pending = false;
+
+        Debug.Log("[RelayManager] Approved connection for client " + request.ClientNetworkId +
+                  " — player spawn deferred to character selection.");
+    }
+
+    // ───────────────────────── NGO Lifecycle Callbacks ─────────────────────────
+
+    private void OnClientConnected(ulong clientId)
+    {
+        if (NetworkManager.Singleton == null) return;
+        if (clientId != NetworkManager.Singleton.LocalClientId) return;
+
+        _networkStartInProgress = false;
+
+        if (_connectionTimeout != null)
+        {
+            StopCoroutine(_connectionTimeout);
+            _connectionTimeout = null;
+        }
+
+        if (NetworkManager.Singleton.IsHost)
+        {
+            SetStatus("Hosting! Join Code: " + _joinCode);
+            ShowSessionHud("Join Code: " + _joinCode);
+            Debug.Log("[RelayManager] Host local client connected. Join code: " + _joinCode);
+        }
+        else if (NetworkManager.Singleton.IsClient)
+        {
+            SetStatus("Connected as client!");
+            ShowSessionHud("Joined: " + _pendingJoinCode);
+            Debug.Log("[RelayManager] Client connected to host.");
+        }
+    }
+
+    private void OnClientDisconnect(ulong clientId)
+    {
+        if (NetworkManager.Singleton == null) return;
+        if (clientId != NetworkManager.Singleton.LocalClientId) return;
+
+        _networkStartInProgress = false;
+
+        if (_connectionTimeout != null)
+        {
+            StopCoroutine(_connectionTimeout);
+            _connectionTimeout = null;
+        }
+
+        string reason = NetworkManager.Singleton.DisconnectReason;
+        if (!string.IsNullOrEmpty(reason))
+        {
+            Debug.LogError("[RelayManager] Disconnected. Reason: " + reason);
+            SetStatus("Disconnected: " + reason);
+        }
+        else
+        {
+            Debug.LogWarning("[RelayManager] Disconnected from server (no reason provided).");
+            SetStatus("Disconnected from server.");
+        }
+
+        ClearSessionHud();
+        SetButtonsInteractable(true);
+    }
+
+    private void OnTransportFailure()
+    {
+        _networkStartInProgress = false;
+
+        if (_connectionTimeout != null)
+        {
+            StopCoroutine(_connectionTimeout);
+            _connectionTimeout = null;
+        }
+
+        string reason = NetworkManager.Singleton != null ? NetworkManager.Singleton.DisconnectReason : "";
+        if (!string.IsNullOrEmpty(reason))
+        {
+            Debug.LogError("[RelayManager] Transport failure. Reason: " + reason);
+            SetStatus("Connection failed: " + reason);
+        }
+        else
+        {
+            Debug.LogError("[RelayManager] Transport failure. Check the join code and try again.");
+            SetStatus("Connection failed. Check the join code and try again.");
+        }
+
+        ClearSessionHud();
+        SetButtonsInteractable(true);
+    }
+
+    private IEnumerator ConnectionTimeoutCoroutine()
+    {
+        yield return new WaitForSeconds(ConnectionTimeoutSeconds);
+        _connectionTimeout = null;
+
+        if (NetworkManager.Singleton != null && !NetworkManager.Singleton.IsConnectedClient)
+        {
+            _networkStartInProgress = false;
+            SetStatus("Connection timed out. Check the join code and try again.");
+            ClearSessionHud();
+            SetButtonsInteractable(true);
+            NetworkManager.Singleton.Shutdown();
+        }
+    }
+
+    // ───────────────────────── Helpers ─────────────────────────
+
+    /// <summary>
+    /// Returns true if NetworkManager exists and is not already running.
+    /// </summary>
+    private bool ValidateNetworkManagerReady(string flowName)
+    {
+        if (NetworkManager.Singleton == null)
+        {
+            SetStatus("NetworkManager is missing.");
+            Debug.LogError("[RelayManager] NetworkManager.Singleton is null.");
+            return false;
+        }
+
+        if (NetworkManager.Singleton.IsListening)
+        {
+            SetStatus($"Already connected. Use Back to disconnect before starting {flowName}.");
+            Debug.LogWarning($"[RelayManager] NetworkManager is already running (IsHost={NetworkManager.Singleton.IsHost}, " +
+                             $"IsClient={NetworkManager.Singleton.IsClient}, IsServer={NetworkManager.Singleton.IsServer}). " +
+                             $"Cannot start {flowName} without disconnecting first.");
+            return false;
+        }
+
+        return true;
+    }
+
+    private void LogNetworkManagerState(string context)
+    {
+        if (NetworkManager.Singleton == null)
+        {
+            Debug.LogError("[RelayManager] NetworkManager state " + context + ": Singleton is null.");
+            return;
+        }
+
+        Debug.Log($"[RelayManager] NetworkManager state {context}: " +
+                  $"IsListening={NetworkManager.Singleton.IsListening}, " +
+                  $"IsHost={NetworkManager.Singleton.IsHost}, " +
+                  $"IsClient={NetworkManager.Singleton.IsClient}, " +
+                  $"IsServer={NetworkManager.Singleton.IsServer}, " +
+                  $"IsConnectedClient={NetworkManager.Singleton.IsConnectedClient}");
     }
 
     private void WireButtonsToCharacterSelectionUI()
@@ -105,143 +513,6 @@ public class RelayManager : MonoBehaviour
         }
     }
 
-    // ───────────────────────── Host (Create Relay) ─────────────────────────
-
-    /// <summary>
-    /// Allocates a Relay server, obtains a join code, configures UnityTransport,
-    /// and starts NGO as a Host. Player spawning is deferred to CharacterSelectionManager.
-    /// </summary>
-    public async void StartHostFlow()
-    {
-        if (!_isSignedIn)
-        {
-            SetStatus("Not signed in yet.");
-            Debug.LogWarning("[RelayManager] Cannot host — not signed in.");
-            return;
-        }
-
-        try
-        {
-            SetStatus("Creating relay...");
-            Debug.Log("[RelayManager] Creating relay allocation...");
-
-            Allocation allocation = await RelayService.Instance.CreateAllocationAsync(maxConnections);
-            _joinCode = await RelayService.Instance.GetJoinCodeAsync(allocation.AllocationId);
-            Debug.Log("[RelayManager] Join Code: " + _joinCode);
-
-            var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
-            transport.SetRelayServerData(allocation.ToRelayServerData("dtls"));
-
-            ConfigureConnectionApproval();
-
-            NetworkManager.Singleton.StartHost();
-
-            SetStatus("Hosting! Join Code: " + _joinCode);
-            Debug.Log("[RelayManager] Host started. Share this join code: " + _joinCode);
-
-            SetButtonsInteractable(false);
-        }
-        catch (RelayServiceException e)
-        {
-            SetStatus("Relay error: " + e.Message);
-            Debug.LogError("[RelayManager] Relay service error: " + e);
-        }
-        catch (Exception e)
-        {
-            SetStatus("Error: " + e.Message);
-            Debug.LogError("[RelayManager] StartHostFlow failed: " + e);
-        }
-    }
-
-    // ───────────────────────── Client (Join Relay) ─────────────────────────
-
-    /// <summary>
-    /// Joins an existing Relay allocation using the provided join code,
-    /// configures UnityTransport, and starts NGO as a Client.
-    /// Player spawning is deferred to CharacterSelectionManager.
-    /// </summary>
-    public async void StartClientFlow(string joinCode)
-    {
-        if (!_isSignedIn)
-        {
-            SetStatus("Not signed in yet.");
-            Debug.LogWarning("[RelayManager] Cannot join — not signed in.");
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(joinCode))
-        {
-            SetStatus("Please enter a join code.");
-            Debug.LogWarning("[RelayManager] Join code is empty.");
-            return;
-        }
-
-        try
-        {
-            SetStatus("Joining relay...");
-            Debug.Log("[RelayManager] Joining relay with code: " + joinCode);
-
-            JoinAllocation joinAllocation = await RelayService.Instance.JoinAllocationAsync(joinCode);
-
-            var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
-            transport.SetRelayServerData(joinAllocation.ToRelayServerData("dtls"));
-
-            ConfigureConnectionApproval();
-
-            NetworkManager.Singleton.StartClient();
-
-            SetStatus("Connected as client!");
-            Debug.Log("[RelayManager] Client started. Connected via Relay.");
-
-            SetButtonsInteractable(false);
-        }
-        catch (RelayServiceException e)
-        {
-            SetStatus("Relay error: " + e.Message);
-            Debug.LogError("[RelayManager] Relay service error: " + e);
-        }
-        catch (Exception e)
-        {
-            SetStatus("Error: " + e.Message);
-            Debug.LogError("[RelayManager] StartClientFlow failed: " + e);
-        }
-    }
-
-    // ───────────────────────── Connection Approval ─────────────────────────
-
-    /// <summary>
-    /// Configures the NetworkManager to use connection approval so we can
-    /// set the player's spawn position/rotation, but we defer player object creation
-    /// until CharacterSelectionManager confirms a character choice.
-    /// </summary>
-    private void ConfigureConnectionApproval()
-    {
-        var nm = NetworkManager.Singleton;
-        nm.NetworkConfig.ConnectionApproval = true;
-        nm.ConnectionApprovalCallback = OnConnectionApproval;
-    }
-
-    /// <summary>
-    /// Called on the server/host for each incoming connection.
-    /// Approves the connection and stores the spawn position, but does NOT
-    /// auto-create the player object. CharacterSelectionManager spawns it later.
-    /// </summary>
-    private void OnConnectionApproval(
-        NetworkManager.ConnectionApprovalRequest request,
-        NetworkManager.ConnectionApprovalResponse response)
-    {
-        response.Approved = true;
-        response.CreatePlayerObject = false;
-        response.Position = spawnPosition;
-        response.Rotation = Quaternion.Euler(spawnRotation);
-        response.Pending = false;
-
-        Debug.Log("[RelayManager] Approved connection for client " + request.ClientNetworkId +
-                  " — player spawn deferred to character selection.");
-    }
-
-    // ───────────────────────── Helpers ─────────────────────────
-
     private void OnApplicationQuit()
     {
         if (NetworkManager.Singleton != null &&
@@ -255,6 +526,32 @@ public class RelayManager : MonoBehaviour
     {
         if (statusText != null)
             statusText.text = message;
+    }
+
+    /// <summary>
+    /// Shows the persistent session HUD with the given message.
+    /// Called after hosting or joining succeeds.
+    /// </summary>
+    private void ShowSessionHud(string message)
+    {
+        if (sessionCodeText != null)
+            sessionCodeText.text = message;
+
+        if (sessionHudRoot != null)
+            sessionHudRoot.SetActive(true);
+    }
+
+    /// <summary>
+    /// Hides and clears the persistent session HUD.
+    /// Public so the back-to-menu flow can call it.
+    /// </summary>
+    public void ClearSessionHud()
+    {
+        if (sessionHudRoot != null)
+            sessionHudRoot.SetActive(false);
+
+        if (sessionCodeText != null)
+            sessionCodeText.text = "";
     }
 
     private void SetButtonsInteractable(bool interactable)
