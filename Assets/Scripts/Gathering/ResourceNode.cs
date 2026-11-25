@@ -110,7 +110,14 @@ public class ResourceNode : NetworkBehaviour
     {
         if (!IsServer) return;
 
-        // Cooldown check
+        if (CurrentHealth.Value <= 0)
+        {
+            Debug.Log($"[ResourceNode] '{resourceType}' already depleted — ignoring hit.");
+            return;
+        }
+
+        // Cooldown check (recorded only after a successful hit so a full inventory,
+        // wrong tool, or out-of-range swing doesn't lock the player out).
         float now = Time.time;
         if (_lastHitTime.TryGetValue(hitterClientId, out float lastTime))
         {
@@ -119,13 +126,6 @@ public class ResourceNode : NetworkBehaviour
                 Debug.Log($"[ResourceNode] '{resourceType}' hit ignored from client {hitterClientId} — cooldown.");
                 return;
             }
-        }
-        _lastHitTime[hitterClientId] = now;
-
-        if (CurrentHealth.Value <= 0)
-        {
-            Debug.Log($"[ResourceNode] '{resourceType}' already depleted — ignoring hit.");
-            return;
         }
 
         // Tool requirement validation
@@ -158,6 +158,7 @@ public class ResourceNode : NetworkBehaviour
             }
 
             CurrentHealth.Value -= 1;
+            _lastHitTime[hitterClientId] = now;
             Debug.Log($"[ResourceNode] '{resourceType}' hit by client {hitterClientId}. " +
                       $"Granted {added}/{amountPerHit}. Health: {CurrentHealth.Value}/{maxHealth}");
         }

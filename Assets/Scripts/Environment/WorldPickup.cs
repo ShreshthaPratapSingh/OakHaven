@@ -53,6 +53,13 @@ public class WorldPickup : NetworkBehaviour
     {
         base.OnNetworkSpawn();
 
+        if (GetComponent<WorldItemDrop>() != null)
+        {
+            Debug.LogWarning($"[WorldPickup] {gameObject.name} also has WorldItemDrop; disabling this static pickup so the stack drop handles collection.");
+            enabled = false;
+            return;
+        }
+
         if (IsServer)
         {
             _remaining.Value = Mathf.Max(0, amount);

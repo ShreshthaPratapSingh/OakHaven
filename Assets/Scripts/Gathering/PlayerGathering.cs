@@ -288,42 +288,68 @@ public class PlayerGathering : NetworkBehaviour
             Debug.DrawRay(origin, direction * maxHitDistance * 2f, Color.yellow, 0.5f);
         }
 
-        if (!Physics.SphereCast(origin, hitRadius, direction, out RaycastHit hit,
-                                maxHitDistance * 2f, interactLayerMask, QueryTriggerInteraction.Collide))
+        // Collect every hit in the crosshair cone and pick the nearest valid ResourceNode.
+        // This avoids failing the whole swing just because the first collider hit is
+        // decorative foliage or another non-gatherable object in front of the bush.
+        RaycastHit[] hits = Physics.SphereCastAll(origin, hitRadius, direction,
+                                                  maxHitDistance * 2f, interactLayerMask,
+                                                  QueryTriggerInteraction.Collide);
+        if (hits.Length == 0)
         {
             if (debugDrawRay)
                 Debug.Log("[PlayerGathering] Crosshair SphereCast hit nothing.");
             yield break;
         }
 
-        ResourceNode node = hit.collider.GetComponentInParent<ResourceNode>();
+        System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+        ResourceNode node = null;
+        RaycastHit validHit = default;
+        foreach (RaycastHit hit in hits)
+        {
+            ResourceNode candidate = hit.collider.GetComponentInParent<ResourceNode>();
+            if (candidate == null)
+            {
+                if (debugDrawRay)
+                    Debug.Log($"[PlayerGathering] Crosshair hit '{hit.collider.name}' but it is not a ResourceNode.");
+                continue;
+            }
+
+            if (candidate.CurrentHealth.Value <= 0)
+            {
+                if (debugDrawRay)
+                    Debug.Log($"[PlayerGathering] Target '{candidate.ResourceType}' is already depleted.");
+                continue;
+            }
+
+            // Reject targets that are clearly out of melee range before bothering the server.
+            // Use the actual hit point on the collider instead of the node root so large
+            // or offset colliders (like the Fiber clumps) don't produce false positives/negatives.
+            Vector3 playerCheckPos = transform.position + Vector3.up * 1f;
+            float distanceToHit = Vector3.Distance(playerCheckPos, hit.point);
+            if (distanceToHit > maxHitDistance + 0.5f)
+            {
+                if (debugDrawRay)
+                    Debug.Log($"[PlayerGathering] Target '{candidate.ResourceType}' is too far from player ({distanceToHit:F2}m).");
+                continue;
+            }
+
+            node = candidate;
+            validHit = hit;
+            break;
+        }
+
         if (node == null)
         {
             if (debugDrawRay)
-                Debug.Log($"[PlayerGathering] Crosshair hit '{hit.collider.name}' but it is not a ResourceNode.");
-            yield break;
-        }
-
-        if (node.CurrentHealth.Value <= 0)
-        {
-            if (debugDrawRay)
-                Debug.Log($"[PlayerGathering] Target '{node.ResourceType}' is already depleted.");
-            yield break;
-        }
-
-        // Reject targets that are clearly out of melee range before bothering the server.
-        float distanceToNode = Vector3.Distance(transform.position, node.transform.position);
-        if (distanceToNode > maxHitDistance + 0.5f)
-        {
-            if (debugDrawRay)
-                Debug.Log($"[PlayerGathering] Target '{node.ResourceType}' is too far from player ({distanceToNode:F2}m).");
+                Debug.Log("[PlayerGathering] No valid ResourceNode found in crosshair sphere cast.");
             yield break;
         }
 
         if (debugDrawRay)
         {
-            Debug.DrawLine(origin, hit.point, Color.green, 0.5f);
-            Debug.Log($"[PlayerGathering] Aimed at '{node.ResourceType}' at {hit.distance:F2}m.");
+            Debug.DrawLine(origin, validHit.point, Color.green, 0.5f);
+            Debug.Log($"[PlayerGathering] Aimed at '{node.ResourceType}' at {validHit.distance:F2}m.");
         }
 
         AttackTargetServerRpc(node.NetworkObjectId, direction);
@@ -395,8 +421,7 @@ public class PlayerGathering : NetworkBehaviour
             return;
         }
 
-        // Range and angle validation
-        Vector3 playerPos = transform.position + Vector3.up * 1f;
+
         Collider nodeCol = node.GetComponent<Collider>() ?? node.GetComponentInChildren<Collider>();
         if (nodeCol == null)
         {
@@ -404,6 +429,7 @@ public class PlayerGathering : NetworkBehaviour
             return;
         }
 
+        Vector3 playerPos = transform.position + Vector3.up * 1f;
         Vector3 closestPoint = nodeCol.ClosestPoint(playerPos);
         float distance = Vector3.Distance(playerPos, closestPoint);
         if (distance > maxHitDistance + 0.5f)
@@ -413,16 +439,13 @@ public class PlayerGathering : NetworkBehaviour
         }
 
         Vector3 toTarget = (closestPoint - playerPos).normalized;
-        cameraForward.Normalize();
-        if (Vector3.Dot(cameraForward, toTarget) < 0.5f)
-        {
-            Debug.LogWarning($"[PlayerGathering] Client {OwnerClientId} target is outside aim cone.");
-            return;
-        }
 
-        // Line-of-sight validation (ignore the player's own collider)
+        // Line-of-sight validation (ignore the player's own collider and trigger volumes).
+        // Trigger colliders are used for harvestable bush volumes and decorative foliage;
+        // they should never block a legitimate harvest. Solid colliders like terrain and
+        // rocks still block the ray.
         int mask = ~(1 << gameObject.layer);
-        if (Physics.Raycast(playerPos, toTarget, out RaycastHit hit, distance, mask, QueryTriggerInteraction.Collide))
+        if (Physics.Raycast(playerPos, toTarget, out RaycastHit hit, distance, mask, QueryTriggerInteraction.Ignore))
         {
             if (hit.collider.GetComponentInParent<ResourceNode>() != node)
             {

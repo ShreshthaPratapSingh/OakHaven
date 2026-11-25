@@ -134,6 +134,7 @@ public static class CharacterSelectionSetup
 
         WireMainMenuButtons(panel, ui);
         WireSelectionManager(ui);
+        WireSessionHud(canvas.transform);
 
         Debug.Log("[CharacterSelectionSetup] Wired scene UI.");
     }
@@ -438,6 +439,65 @@ public static class CharacterSelectionSetup
         so.FindProperty("selectionUI").objectReferenceValue = ui;
         so.ApplyModifiedPropertiesWithoutUndo();
         Debug.Log("[CharacterSelectionSetup] Wired CharacterSelectionManager.selectionUI.");
+    }
+
+    private static void WireSessionHud(Transform canvas)
+    {
+        Transform hud = canvas.Find("SessionHUD");
+        if (hud == null)
+        {
+            hud = CreateSessionHud(canvas);
+            Debug.Log("[CharacterSelectionSetup] Created SessionHUD.");
+        }
+
+        Transform textTransform = hud.Find("SessionCodeText");
+        TMP_Text codeText = textTransform != null ? textTransform.GetComponent<TMP_Text>() : null;
+
+        RelayManager relay = FindRelayManager();
+        if (relay == null)
+        {
+            Debug.LogWarning("[CharacterSelectionSetup] RelayManager not found in scene.");
+            return;
+        }
+
+        SerializedObject so = new SerializedObject(relay);
+        so.FindProperty("sessionHudRoot").objectReferenceValue = hud.gameObject;
+        so.FindProperty("sessionCodeText").objectReferenceValue = codeText;
+        so.ApplyModifiedPropertiesWithoutUndo();
+        Debug.Log("[CharacterSelectionSetup] Wired RelayManager session HUD.");
+    }
+
+    private static Transform CreateSessionHud(Transform canvas)
+    {
+        GameObject hud = new GameObject("SessionHUD");
+        hud.transform.SetParent(canvas, false);
+        hud.SetActive(false);
+
+        RectTransform hudRt = hud.AddComponent<RectTransform>();
+        hudRt.anchorMin = new Vector2(0.5f, 1f);
+        hudRt.anchorMax = new Vector2(0.5f, 1f);
+        hudRt.pivot = new Vector2(0.5f, 1f);
+        hudRt.anchoredPosition = new Vector2(0, -10);
+        hudRt.sizeDelta = new Vector2(420, 40);
+
+        Image bg = hud.AddComponent<Image>();
+        bg.color = new Color(0, 0, 0, 0.6f);
+        bg.raycastTarget = false;
+
+        GameObject textObj = new GameObject("SessionCodeText");
+        textObj.transform.SetParent(hud.transform, false);
+        RectTransform textRt = textObj.AddComponent<RectTransform>();
+        textRt.anchorMin = Vector2.zero;
+        textRt.anchorMax = Vector2.one;
+        textRt.sizeDelta = new Vector2(-20, 0);
+
+        TMP_Text text = textObj.AddComponent<TextMeshProUGUI>();
+        text.alignment = TextAlignmentOptions.Center;
+        text.fontSize = 18;
+        text.color = Color.white;
+        text.raycastTarget = false;
+
+        return hud.transform;
     }
 }
 #endif

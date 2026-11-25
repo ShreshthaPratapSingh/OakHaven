@@ -102,9 +102,9 @@ MonoBehaviour:
   ShowTopMostFoldoutHeaderGroup: 1
   resourceType: fiber
   amountPerHit: 1
-  maxHealth: 10
+  maxHealth: 5
   requiredToolTag: 
-  hitCooldown: 0.35
+  hitCooldown: 0.5
   CurrentHealth:
     UpdateTraits:
       MinSecondsBetweenUpdates: 0

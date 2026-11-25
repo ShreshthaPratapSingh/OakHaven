@@ -34,6 +34,9 @@ public class CharacterSelectionManager : NetworkBehaviour
     /// <summary>Raised whenever a character is reserved or released.</summary>
     public event Action OnTakenCharactersChanged;
 
+    /// <summary>Raised on all clients when a player's character is spawned.</summary>
+    public event Action<ulong> OnCharacterSpawned;
+
     /// <summary>
     /// Replicated list of character IDs already reserved by active players.
     /// </summary>
@@ -56,8 +59,19 @@ public class CharacterSelectionManager : NetworkBehaviour
 
         _takenCharacterIds.OnListChanged += OnTakenListChanged;
 
-        if (IsClient && selectionUI != null)
-            selectionUI.ShowCharacterSelection();
+        if (IsClient)
+        {
+            if (selectionUI != null)
+            {
+                selectionUI.ShowCharacterSelection();
+                Debug.Log("[CharacterSelectionManager] Client spawned — showing character selection.");
+            }
+            else
+            {
+                Debug.LogError("[CharacterSelectionManager] selectionUI is not assigned! " +
+                               "The selection screen cannot be shown.");
+            }
+        }
 
         if (IsServer)
         {
@@ -169,11 +183,18 @@ public class CharacterSelectionManager : NetworkBehaviour
         }
 
         netObj.SpawnAsPlayerObject(clientId);
+        ConfirmSpawnClientRpc(clientId);
 
         PlayerCharacterAppearance appearance = playerInstance.GetComponent<PlayerCharacterAppearance>();
         if (appearance != null)
             appearance.SetCharacterId(characterId);
         Debug.Log($"[CharacterSelectionManager] Spawned player for client {clientId} with character '{characterId}'.");
+    }
+
+    [ClientRpc]
+    private void ConfirmSpawnClientRpc(ulong clientId)
+    {
+        OnCharacterSpawned?.Invoke(clientId);
     }
 
     private void OnClientConnected(ulong clientId)
@@ -215,5 +236,8 @@ public class CharacterSelectionManager : NetworkBehaviour
             return;
 
         Debug.LogWarning($"[CharacterSelectionManager] Character '{characterId}' rejected: {reason}");
+
+        if (selectionUI != null)
+            selectionUI.ShowSelectionRejected(reason);
     }
 }
